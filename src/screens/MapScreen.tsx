@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Modal, Image, TextInput, Button, StyleSheet, Text, Alert } from 'react-native';
+import { View, Modal, Image, TextInput, Button, StyleSheet, Text, Alert, TouchableOpacity } from 'react-native';
 import MapView, { MapPressEvent, Marker, Callout } from 'react-native-maps';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';

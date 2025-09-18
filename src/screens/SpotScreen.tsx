@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+// Camera removed - only using library picker
 import { Video, ResizeMode } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
 
@@ -15,15 +16,15 @@ type Clip = {
   thumb_path?: string;
   vote_count: number;
   created_at: string;
+  profiles?: {
+    username: string;
+    display_name: string;
+  };
 };
 
 export default function SpotScreen({ route, navigation }: any) {
   const { spot } = route.params;
   const [clips, setClips] = useState<Clip[]>([]);
-  const [recording, setRecording] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
-  const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
-  const [permission, requestPermission] = useCameraPermissions();
   const [loading, setLoading] = useState(false);
   
   // Surveillance state
@@ -39,7 +40,13 @@ export default function SpotScreen({ route, navigation }: any) {
   async function loadClips() {
     const { data } = await supabase
       .from('clips')
-      .select('*')
+      .select(`
+        *,
+        profiles:user_id (
+          username,
+          display_name
+        )
+      `)
       .eq('spot_id', spot.id)
       .order('vote_count', { ascending: false });
     setClips(data || []);
@@ -52,54 +59,83 @@ export default function SpotScreen({ route, navigation }: any) {
     setSurveillance([]); // Placeholder
   }
 
-  async function startRecording() {
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) return Alert.alert('Camera permission required');
-    }
-    setShowCamera(true);
-  }
-
-  async function recordVideo() {
-    if (!cameraRef) return;
-    setRecording(true);
+  async function pickVideoFromLibrary() {
     try {
-      const video = await cameraRef.recordAsync({ maxDuration: 10 });
-      if (video?.uri) {
-        await uploadClip(video.uri);
+      console.log('Opening video library...');
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        quality: 0.8,
+        allowsEditing: true,
+        videoMaxDuration: 10
+      });
+      
+      console.log('Library result:', result);
+      
+      if (!result.canceled && result.assets[0]) {
+        console.log('Selected video URI:', result.assets[0].uri);
+        await uploadClip(result.assets[0].uri);
+      } else {
+        console.log('Video selection canceled or no asset');
       }
     } catch (e: any) {
-      Alert.alert('Recording failed', e.message);
-    } finally {
-      setRecording(false);
-      setShowCamera(false);
+      console.error('pickVideoFromLibrary error:', e);
+      Alert.alert('Error', 'Failed to open video library: ' + e.message);
     }
   }
 
-  async function stopRecording() {
-    if (cameraRef && recording) {
-      cameraRef.stopRecording();
-    }
-  }
+  // Recording functionality removed - only using library picker
 
   async function uploadClip(videoUri: string) {
     setLoading(true);
     try {
+      console.log('Starting upload for video:', videoUri);
       const { data: userData } = await supabase.auth.getUser();
       if (!userData?.user) throw new Error('Not authenticated');
+
+      console.log('User ID:', userData.user.id);
+
+      // Check if profile exists
+      const { data: existingProfile, error: profileCheckError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userData.user.id)
+        .single();
+
+      console.log('Existing profile check:', existingProfile, profileCheckError);
+
+      if (!existingProfile) {
+        console.log('Creating new profile...');
+        const { data: newProfile, error: profileCreateError } = await supabase
+          .from('profiles')
+          .insert([{
+            id: userData.user.id,
+            username: userData.user.email?.split('@')[0] || 'user',
+            display_name: userData.user.email?.split('@')[0] || 'User'
+          }])
+          .select('*');
+
+        console.log('Profile creation result:', newProfile, profileCreateError);
+        
+        if (profileCreateError) {
+          throw new Error(`Failed to create profile: ${profileCreateError.message}`);
+        }
+      }
 
       const videoFileName = `${Date.now()}.mp4`;
       const videoPath = `clips/${spot.id}/${videoFileName}`;
       
+      console.log('Creating thumbnail...');
       // Create thumbnail
       const thumb = await VideoThumbnails.getThumbnailAsync(videoUri, { time: 0 });
       const thumbFileName = `${Date.now()}_thumb.jpg`;
       const thumbPath = `clips/thumbs/${thumbFileName}`;
 
+      console.log('Uploading video and thumbnail...');
       // Upload video and thumbnail
       await uploadVideoFromUri('clips', videoPath, videoUri);
       await uploadImageFromUri('clips', thumbPath, thumb.uri);
 
+      console.log('Inserting clip record...');
       // Insert clip record
       const { data, error } = await supabase.from('clips').insert([{
         spot_id: spot.id,
@@ -109,12 +145,17 @@ export default function SpotScreen({ route, navigation }: any) {
         duration_seconds: 10
       }]).select('*');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Clip insert error:', error);
+        throw error;
+      }
+      
+      console.log('Clip uploaded successfully:', data);
       setClips(prev => [data![0], ...prev]);
       Alert.alert('Success', 'Clip uploaded!');
     } catch (e: any) {
       console.error('uploadClip error', e);
-      Alert.alert('Upload failed', e.message);
+      Alert.alert('Upload failed', e.message || JSON.stringify(e));
     } finally {
       setLoading(false);
     }
@@ -203,31 +244,6 @@ export default function SpotScreen({ route, navigation }: any) {
     return supabase.storage.from('spots-photos').getPublicUrl(spot.photo_path).data.publicUrl;
   }
 
-  if (showCamera) {
-    return (
-      <View style={styles.cameraContainer}>
-        <CameraView
-          style={styles.camera}
-          facing="back"
-          mode="video"
-          ref={setCameraRef}
-        />
-        <View style={styles.cameraControls}>
-          <TouchableOpacity
-            style={[styles.recordButton, recording && styles.recordingButton]}
-            onPress={recording ? stopRecording : recordVideo}
-            disabled={loading}
-          >
-            <Text style={styles.recordText}>{recording ? 'Stop' : 'Record'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelButton} onPress={() => setShowCamera(false)}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
   const topClips = clips.slice(0, 3);
 
   return (
@@ -267,7 +283,10 @@ export default function SpotScreen({ route, navigation }: any) {
                   />
                 )}
                 <View style={styles.clipInfo}>
-                  <Text style={styles.voteCount}>❤️ {clip.vote_count}</Text>
+                  <View style={styles.clipDetails}>
+                    <Text style={styles.username}>@{clip.profiles?.username || 'anonymous'}</Text>
+                    <Text style={styles.voteCount}>❤️ {clip.vote_count}</Text>
+                  </View>
                   <TouchableOpacity style={styles.voteButton} onPress={() => vote(clip.id)}>
                     <Text style={styles.voteText}>Vote</Text>
                   </TouchableOpacity>
@@ -280,9 +299,11 @@ export default function SpotScreen({ route, navigation }: any) {
         {/* Upload Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📹 Upload Your Clip</Text>
-          <Text style={styles.sectionSubtitle}>Record a trick to battle for this spot</Text>
-          <TouchableOpacity style={styles.uploadButton} onPress={startRecording}>
-            <Text style={styles.uploadButtonText}>Start Recording (10s max)</Text>
+          <Text style={styles.sectionSubtitle}>Upload a video to battle for this spot</Text>
+          <TouchableOpacity style={styles.uploadButton} onPress={pickVideoFromLibrary} disabled={loading}>
+            <Text style={styles.uploadButtonText}>
+              {loading ? 'Uploading...' : '📱 Pick Video from Library'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -346,6 +367,8 @@ const styles = StyleSheet.create({
   clipRank: { fontSize: 18, fontWeight: 'bold', color: '#FF6B35', marginRight: 12, minWidth: 30 },
   thumbnail: { width: 80, height: 60, borderRadius: 4 },
   clipInfo: { flex: 1, marginLeft: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  clipDetails: { flex: 1 },
+  username: { fontSize: 14, color: '#007AFF', fontWeight: '500', marginBottom: 2 },
   voteCount: { fontSize: 16, fontWeight: 'bold' },
   voteButton: { backgroundColor: '#007AFF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
   voteText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
@@ -363,13 +386,5 @@ const styles = StyleSheet.create({
   trickText: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
   videoPartText: { fontSize: 14, color: '#666' },
   
-  // Camera
-  cameraContainer: { flex: 1 },
-  camera: { flex: 1 },
-  cameraControls: { position: 'absolute', bottom: 50, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 20 },
-  recordButton: { backgroundColor: '#FF3B30', paddingHorizontal: 20, paddingVertical: 16, borderRadius: 30 },
-  recordText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  recordingButton: { backgroundColor: '#34C759' },
-  cancelButton: { backgroundColor: '#666', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 25 },
-  cancelText: { color: '#fff', fontWeight: 'bold' }
+  // Camera functionality removed
 });
