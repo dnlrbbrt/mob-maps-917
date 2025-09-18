@@ -13,7 +13,13 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Record skate clips",
+        "NSMicrophoneUsageDescription": "Audio for clips",
+        "NSLocationWhenInUseUsageDescription": "Find local skate spots",
+        "NSPhotoLibraryAddUsageDescription": "Save and upload spot photos"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +27,24 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
+      ]
+    },
+    "extra": {
+      "SUPABASE_URL": "https://gcyyeahtcdevelkugysv.supabase.co",
+      "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjeXllYWh0Y2RldmVsa3VneXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxNjI2MDcsImV4cCI6MjA3MzczODYwN30.I6XJBp0WWYUtQ29sNITZ3PjuSM7k6EQdhQ3i-b3S8EI"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }
