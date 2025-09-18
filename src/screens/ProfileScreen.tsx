@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, TextInput, Scro
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
+import { colors } from '../constants/colors';
 
 type Profile = {
   id: string;
@@ -270,36 +271,36 @@ export default function ProfileScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingTop: 48, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  container: { flex: 1, backgroundColor: colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingTop: 48, borderBottomWidth: 1, borderBottomColor: colors.border },
   backButton: { marginRight: 16 },
-  backText: { fontSize: 16, color: '#007AFF' },
-  title: { flex: 1, fontSize: 20, fontWeight: 'bold' },
+  backText: { fontSize: 16, color: colors.primary },
+  title: { flex: 1, fontSize: 20, fontWeight: 'bold', color: colors.text },
   signOutButton: {},
-  signOutText: { fontSize: 16, color: '#FF3B30' },
-  loading: { textAlign: 'center', marginTop: 50, fontSize: 16, color: '#666' },
+  signOutText: { fontSize: 16, color: colors.error },
+  loading: { textAlign: 'center', marginTop: 50, fontSize: 16, color: colors.textSecondary },
   
   profileSection: { padding: 20, alignItems: 'center' },
   avatarContainer: { marginBottom: 20 },
   avatar: { width: 100, height: 100, borderRadius: 50 },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
+  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 30 },
   
   fieldSection: { width: '100%', marginBottom: 20 },
-  fieldLabel: { fontSize: 14, color: '#666', marginBottom: 5, fontWeight: '500' },
-  fieldValue: { fontSize: 18, color: '#333', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
+  fieldLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: 5, fontWeight: '500' },
+  fieldValue: { fontSize: 18, color: colors.text, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  input: { borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 8, padding: 12, fontSize: 16, backgroundColor: colors.input, color: colors.text },
   
   statsSection: { width: '100%', marginVertical: 20 },
-  statCard: { backgroundColor: '#f8f8f8', padding: 20, borderRadius: 12, alignItems: 'center' },
-  statNumber: { fontSize: 28, fontWeight: 'bold', color: '#007AFF' },
-  statLabel: { fontSize: 14, color: '#666', marginTop: 4 },
+  statCard: { backgroundColor: colors.surface, padding: 20, borderRadius: 12, alignItems: 'center' },
+  statNumber: { fontSize: 28, fontWeight: 'bold', color: colors.primary },
+  statLabel: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
   
   buttonRow: { flexDirection: 'row', width: '100%', gap: 10 },
   button: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center' },
-  editButton: { backgroundColor: '#007AFF', width: '100%' },
-  saveButton: { backgroundColor: '#34C759' },
-  cancelButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  cancelButtonText: { color: '#666', fontSize: 16, fontWeight: 'bold' }
+  editButton: { backgroundColor: colors.primary, width: '100%' },
+  saveButton: { backgroundColor: colors.success },
+  cancelButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },
+  cancelButtonText: { color: colors.textSecondary, fontSize: 16, fontWeight: 'bold' }
 });

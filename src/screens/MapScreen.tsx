@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
+import { colors } from '../constants/colors';
 
 type Coord = { latitude: number; longitude: number };
 
@@ -219,26 +220,75 @@ export default function MapScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  modal: { flex: 1, padding: 16, paddingTop: 48 },
-  header: { fontSize: 22, marginBottom: 12 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, marginBottom: 12 },
-  preview: { width: '100%', height: 240, borderRadius: 8, marginBottom: 12 },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  callout: { width: 200, padding: 8 },
-  calloutImage: { width: '100%', height: 100, borderRadius: 4, marginBottom: 4 },
-  calloutTitle: { fontSize: 16, fontWeight: 'bold' },
-  calloutSubtitle: { fontSize: 12, color: '#666' },
+  modal: { 
+    flex: 1, 
+    padding: 16, 
+    paddingTop: 48,
+    backgroundColor: colors.background
+  },
+  header: { 
+    fontSize: 22, 
+    marginBottom: 12,
+    color: colors.text,
+    fontWeight: 'bold'
+  },
+  input: { 
+    borderWidth: 1, 
+    borderColor: colors.inputBorder, 
+    backgroundColor: colors.input,
+    borderRadius: 8, 
+    padding: 12, 
+    marginBottom: 12,
+    color: colors.text,
+    fontSize: 16
+  },
+  preview: { 
+    width: '100%', 
+    height: 240, 
+    borderRadius: 8, 
+    marginBottom: 12 
+  },
+  row: { 
+    flexDirection: 'row', 
+    alignItems: 'center',
+    gap: 12
+  },
+  callout: { 
+    width: 200, 
+    padding: 8,
+    backgroundColor: colors.surface,
+    borderRadius: 8
+  },
+  calloutImage: { 
+    width: '100%', 
+    height: 100, 
+    borderRadius: 4, 
+    marginBottom: 4 
+  },
+  calloutTitle: { 
+    fontSize: 16, 
+    fontWeight: 'bold',
+    color: colors.text
+  },
+  calloutSubtitle: { 
+    fontSize: 12, 
+    color: colors.primary
+  },
   zoomIndicator: {
     position: 'absolute',
     top: 60,
     left: 16,
     right: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: colors.mapBackground,
     padding: 12,
     borderRadius: 8,
     alignItems: 'center'
   },
-  zoomText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
+  zoomText: { 
+    color: colors.mapText, 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  }
 });
 
 

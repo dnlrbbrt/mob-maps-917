@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Image } from 'react-native';
 import { supabase } from '../../supabase';
+import { colors } from '../constants/colors';
 
 type Mob = {
   id: string;
@@ -409,54 +410,54 @@ export default function MyMobScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: colors.background },
   header: { 
     padding: 20, 
     paddingTop: 60, 
-    backgroundColor: '#f8f8f8', 
+    backgroundColor: colors.surface, 
     borderBottomWidth: 1, 
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.border,
     alignItems: 'center'
   },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#666' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4, color: colors.text },
+  subtitle: { fontSize: 16, color: colors.textSecondary },
   
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { fontSize: 16, color: '#666' },
+  loadingText: { fontSize: 16, color: colors.textSecondary },
   
   scrollContainer: { flex: 1 },
-  section: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  sectionText: { fontSize: 14, color: '#666', marginBottom: 16 },
+  section: { padding: 20, borderBottomWidth: 1, borderBottomColor: colors.border },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8, color: colors.text },
+  sectionText: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
   
-  primaryButton: { backgroundColor: '#007AFF', padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 12 },
-  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  secondaryButton: { backgroundColor: '#34C759', padding: 16, borderRadius: 8, alignItems: 'center' },
-  secondaryButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  primaryButton: { backgroundColor: colors.primary, padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 12 },
+  primaryButtonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },
+  secondaryButton: { backgroundColor: colors.success, padding: 16, borderRadius: 8, alignItems: 'center' },
+  secondaryButtonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },
   
-  formContainer: { marginTop: 16, padding: 16, backgroundColor: '#f8f8f8', borderRadius: 8 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 16, backgroundColor: '#fff' },
+  formContainer: { marginTop: 16, padding: 16, backgroundColor: colors.surface, borderRadius: 8 },
+  input: { borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 16, backgroundColor: colors.input, color: colors.text },
   buttonRow: { flexDirection: 'row', gap: 8 },
-  createButton: { flex: 1, backgroundColor: '#007AFF', padding: 12, borderRadius: 8, alignItems: 'center' },
-  joinButton: { flex: 1, backgroundColor: '#34C759', padding: 12, borderRadius: 8, alignItems: 'center' },
-  cancelButton: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', padding: 12, borderRadius: 8, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
-  cancelButtonText: { color: '#666', fontWeight: 'bold' },
+  createButton: { flex: 1, backgroundColor: colors.primary, padding: 12, borderRadius: 8, alignItems: 'center' },
+  joinButton: { flex: 1, backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
+  cancelButton: { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 12, borderRadius: 8, alignItems: 'center' },
+  buttonText: { color: colors.text, fontWeight: 'bold' },
+  cancelButtonText: { color: colors.textSecondary, fontWeight: 'bold' },
   
   statsContainer: { flexDirection: 'row', gap: 16 },
-  statCard: { flex: 1, backgroundColor: '#f8f8f8', padding: 20, borderRadius: 12, alignItems: 'center' },
-  statNumber: { fontSize: 28, fontWeight: 'bold', color: '#007AFF' },
-  statLabel: { fontSize: 14, color: '#666', marginTop: 4 },
+  statCard: { flex: 1, backgroundColor: colors.surface, padding: 20, borderRadius: 12, alignItems: 'center' },
+  statNumber: { fontSize: 28, fontWeight: 'bold', color: colors.primary },
+  statLabel: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
   
-  memberCard: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: '#f8f8f8', borderRadius: 8, marginBottom: 8 },
+  memberCard: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: colors.surface, borderRadius: 8, marginBottom: 8 },
   memberAvatar: { marginRight: 12 },
   avatar: { width: 40, height: 40, borderRadius: 20 },
-  avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#ddd', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 16 },
+  avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceVariant, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 16, color: colors.textSecondary },
   memberInfo: { flex: 1 },
-  memberUsername: { fontSize: 16, fontWeight: 'bold', color: '#007AFF' },
-  memberDisplayName: { fontSize: 14, color: '#666' },
+  memberUsername: { fontSize: 16, fontWeight: 'bold', color: colors.primary },
+  memberDisplayName: { fontSize: 14, color: colors.textSecondary },
   
-  leaveButton: { backgroundColor: '#FF3B30', padding: 16, borderRadius: 8, alignItems: 'center' },
-  leaveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
+  leaveButton: { backgroundColor: colors.error, padding: 16, borderRadius: 8, alignItems: 'center' },
+  leaveButtonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' }
 });

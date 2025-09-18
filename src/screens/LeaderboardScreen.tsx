@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
 import { supabase } from '../../supabase';
+import { colors } from '../constants/colors';
 
 type LeaderboardUser = {
   id: string;
@@ -247,32 +248,32 @@ export default function LeaderboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: colors.background },
   header: { 
     padding: 20, 
     paddingTop: 60, 
-    backgroundColor: '#f8f8f8', 
+    backgroundColor: colors.surface, 
     borderBottomWidth: 1, 
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.border,
     alignItems: 'center'
   },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#666', marginBottom: 16 },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4, color: colors.text },
+  subtitle: { fontSize: 16, color: colors.textSecondary, marginBottom: 16 },
   
-  tabContainer: { flexDirection: 'row', backgroundColor: '#f0f0f0', borderRadius: 8, padding: 4 },
+  tabContainer: { flexDirection: 'row', backgroundColor: colors.surfaceVariant, borderRadius: 8, padding: 4 },
   tab: { flex: 1, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, alignItems: 'center' },
-  activeTab: { backgroundColor: '#007AFF' },
-  tabText: { fontSize: 14, fontWeight: '500', color: '#666' },
-  activeTabText: { color: '#fff' },
+  activeTab: { backgroundColor: colors.primary },
+  tabText: { fontSize: 14, fontWeight: '500', color: colors.textSecondary },
+  activeTabText: { color: colors.text },
   
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { fontSize: 16, color: '#666' },
+  loadingText: { fontSize: 16, color: colors.textSecondary },
   
   scrollContainer: { flex: 1 },
   
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  emptyText: { fontSize: 18, fontWeight: 'bold', color: '#666', marginBottom: 8 },
-  emptySubtext: { fontSize: 14, color: '#999' },
+  emptyText: { fontSize: 18, fontWeight: 'bold', color: colors.textSecondary, marginBottom: 8 },
+  emptySubtext: { fontSize: 14, color: colors.textTertiary },
   
   userCard: { 
     flexDirection: 'row', 
@@ -280,10 +281,10 @@ const styles = StyleSheet.create({
     padding: 16, 
     marginHorizontal: 16, 
     marginVertical: 4,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -291,13 +292,13 @@ const styles = StyleSheet.create({
     elevation: 2
   },
   topThreeCard: {
-    backgroundColor: '#fff9e6',
-    borderColor: '#ffd700',
+    backgroundColor: colors.surfaceVariant,
+    borderColor: colors.gold,
     borderWidth: 2
   },
   
   rankContainer: { marginRight: 12, minWidth: 40 },
-  rank: { fontSize: 16, fontWeight: 'bold', textAlign: 'center' },
+  rank: { fontSize: 16, fontWeight: 'bold', textAlign: 'center', color: colors.text },
   topThreeRank: { fontSize: 20 },
   
   avatarContainer: { marginRight: 12 },
@@ -306,30 +307,30 @@ const styles = StyleSheet.create({
     width: 50, 
     height: 50, 
     borderRadius: 25, 
-    backgroundColor: '#f0f0f0', 
+    backgroundColor: colors.surfaceVariant, 
     alignItems: 'center', 
     justifyContent: 'center' 
   },
-  avatarText: { fontSize: 20 },
+  avatarText: { fontSize: 20, color: colors.textSecondary },
   
   mobIcon: { 
     width: 50, 
     height: 50, 
     borderRadius: 25, 
-    backgroundColor: '#007AFF', 
+    backgroundColor: colors.primary, 
     alignItems: 'center', 
     justifyContent: 'center' 
   },
-  mobIconText: { fontSize: 20, color: '#fff' },
+  mobIconText: { fontSize: 20, color: colors.text },
   
   userInfo: { flex: 1 },
-  username: { fontSize: 16, fontWeight: 'bold', color: '#007AFF', marginBottom: 2 },
-  displayName: { fontSize: 14, color: '#666' },
+  username: { fontSize: 16, fontWeight: 'bold', color: colors.primary, marginBottom: 2 },
+  displayName: { fontSize: 14, color: colors.textSecondary },
   
   scoreContainer: { alignItems: 'center' },
-  spotCount: { fontSize: 20, fontWeight: 'bold', color: '#FF6B35' },
-  spotLabel: { fontSize: 12, color: '#666' },
+  spotCount: { fontSize: 20, fontWeight: 'bold', color: colors.primary },
+  spotLabel: { fontSize: 12, color: colors.textSecondary },
   
   footerContainer: { padding: 20, alignItems: 'center' },
-  footerText: { fontSize: 14, color: '#999', textAlign: 'center', fontStyle: 'italic' }
+  footerText: { fontSize: 14, color: colors.textTertiary, textAlign: 'center', fontStyle: 'italic' }
 });

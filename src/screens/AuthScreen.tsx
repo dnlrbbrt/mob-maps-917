@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { View, TextInput, Button, Text, StyleSheet } from 'react-native';
+import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../../supabase';
+import { colors } from '../constants/colors';
 
 export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const [email, setEmail] = useState('');
@@ -50,26 +51,88 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.row}>
-        <Button title={loading ? '...' : 'Sign In'} onPress={signIn} disabled={loading} />
-        <View style={{ width: 12 }} />
-        <Button title="Sign Up" onPress={signUp} disabled={loading} />
+        <TouchableOpacity 
+          style={[styles.button, styles.primaryButton, loading && styles.buttonDisabled]} 
+          onPress={signIn} 
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>{loading ? '...' : 'Sign In'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.button, styles.secondaryButton]} 
+          onPress={signUp} 
+          disabled={loading}
+        >
+          <Text style={styles.secondaryButtonText}>Sign Up</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, justifyContent: 'center' },
-  title: { fontSize: 24, marginBottom: 16 },
+  container: { 
+    flex: 1, 
+    padding: 24, 
+    justifyContent: 'center',
+    backgroundColor: colors.background
+  },
+  title: { 
+    fontSize: 24, 
+    marginBottom: 16,
+    color: colors.text,
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.inputBorder,
+    backgroundColor: colors.input,
     borderRadius: 8,
     padding: 12,
-    marginBottom: 12
+    marginBottom: 12,
+    color: colors.text,
+    fontSize: 16
   },
-  error: { color: 'red', marginBottom: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }
+  error: { 
+    color: colors.error, 
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  row: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    gap: 12
+  },
+  button: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  primaryButton: {
+    backgroundColor: colors.primary
+  },
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  buttonDisabled: {
+    backgroundColor: colors.buttonDisabled
+  },
+  buttonText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  secondaryButtonText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: 'bold'
+  }
 });
 
 
