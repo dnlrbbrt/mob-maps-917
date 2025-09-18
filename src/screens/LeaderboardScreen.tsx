@@ -10,31 +10,48 @@ type LeaderboardUser = {
   spots_owned: number;
 };
 
+type MobLeaderboard = {
+  mob_id: string;
+  mob_name: string;
+  total_spots_owned: number;
+  member_count: number;
+};
+
 export default function LeaderboardScreen() {
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
+  const [mobs, setMobs] = useState<MobLeaderboard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'users' | 'mobs'>('users');
 
   useEffect(() => {
-    loadLeaderboard();
+    loadLeaderboards();
   }, []);
 
-  async function loadLeaderboard() {
+  async function loadLeaderboards() {
     try {
       setLoading(true);
       
-      // Get users with their spot counts
-      const { data, error } = await supabase.rpc('get_leaderboard', { limit_count: 20 });
+      // Load user leaderboard
+      const { data: userData, error: userError } = await supabase.rpc('get_leaderboard', { limit_count: 20 });
       
-      if (error) {
-        console.error('Leaderboard error:', error);
-        // Fallback to manual query if RPC doesn't exist
+      if (userError) {
+        console.error('User leaderboard error:', userError);
         await loadLeaderboardManual();
-        return;
+      } else {
+        setUsers(userData || []);
+      }
+
+      // Load mob leaderboard
+      const { data: mobData, error: mobError } = await supabase.rpc('get_mob_leaderboard', { limit_count: 20 });
+      
+      if (mobError) {
+        console.error('Mob leaderboard error:', mobError);
+      } else {
+        setMobs(mobData || []);
       }
       
-      setUsers(data || []);
     } catch (e: any) {
-      console.error('loadLeaderboard error:', e);
+      console.error('loadLeaderboards error:', e);
       await loadLeaderboardManual();
     } finally {
       setLoading(false);
@@ -104,59 +121,123 @@ export default function LeaderboardScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>🏆 Leaderboard</Text>
         <Text style={styles.subtitle}>Top spot owners</Text>
+        
+        {/* Tab Switcher */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'users' && styles.activeTab]} 
+            onPress={() => setActiveTab('users')}
+          >
+            <Text style={[styles.tabText, activeTab === 'users' && styles.activeTabText]}>
+              👤 Users
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'mobs' && styles.activeTab]} 
+            onPress={() => setActiveTab('mobs')}
+          >
+            <Text style={[styles.tabText, activeTab === 'mobs' && styles.activeTabText]}>
+              👥 Mobs
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
       
       <ScrollView style={styles.scrollContainer}>
-        {users.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No spot owners yet!</Text>
-            <Text style={styles.emptySubtext}>Be the first to claim a spot</Text>
-          </View>
-        ) : (
-          users.map((user, index) => (
-            <View key={user.id} style={[
-              styles.userCard,
-              index < 3 && styles.topThreeCard
-            ]}>
-              <View style={styles.rankContainer}>
-                <Text style={[
-                  styles.rank,
-                  index < 3 && styles.topThreeRank
-                ]}>
-                  {getRankEmoji(index)}
-                </Text>
-              </View>
-              
-              <View style={styles.avatarContainer}>
-                {user.avatar_url ? (
-                  <Image 
-                    source={{ uri: getAvatarUrl(user.avatar_url) }} 
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarText}>👤</Text>
-                  </View>
-                )}
-              </View>
-              
-              <View style={styles.userInfo}>
-                <Text style={styles.username}>@{user.username || 'anonymous'}</Text>
-                <Text style={styles.displayName}>{user.display_name || 'User'}</Text>
-              </View>
-              
-              <View style={styles.scoreContainer}>
-                <Text style={styles.spotCount}>{user.spots_owned}</Text>
-                <Text style={styles.spotLabel}>spots</Text>
-              </View>
+        {activeTab === 'users' ? (
+          users.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No spot owners yet!</Text>
+              <Text style={styles.emptySubtext}>Be the first to claim a spot</Text>
             </View>
-          ))
+          ) : (
+            users.map((user, index) => (
+              <View key={user.id} style={[
+                styles.userCard,
+                index < 3 && styles.topThreeCard
+              ]}>
+                <View style={styles.rankContainer}>
+                  <Text style={[
+                    styles.rank,
+                    index < 3 && styles.topThreeRank
+                  ]}>
+                    {getRankEmoji(index)}
+                  </Text>
+                </View>
+                
+                <View style={styles.avatarContainer}>
+                  {user.avatar_url ? (
+                    <Image 
+                      source={{ uri: getAvatarUrl(user.avatar_url) }} 
+                      style={styles.avatar}
+                    />
+                  ) : (
+                    <View style={styles.avatarPlaceholder}>
+                      <Text style={styles.avatarText}>👤</Text>
+                    </View>
+                  )}
+                </View>
+                
+                <View style={styles.userInfo}>
+                  <Text style={styles.username}>@{user.username || 'anonymous'}</Text>
+                  <Text style={styles.displayName}>{user.display_name || 'User'}</Text>
+                </View>
+                
+                <View style={styles.scoreContainer}>
+                  <Text style={styles.spotCount}>{user.spots_owned}</Text>
+                  <Text style={styles.spotLabel}>spots</Text>
+                </View>
+              </View>
+            ))
+          )
+        ) : (
+          mobs.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No mobs with spots yet!</Text>
+              <Text style={styles.emptySubtext}>Create a mob and start claiming spots</Text>
+            </View>
+          ) : (
+            mobs.map((mob, index) => (
+              <View key={mob.mob_id} style={[
+                styles.userCard,
+                index < 3 && styles.topThreeCard
+              ]}>
+                <View style={styles.rankContainer}>
+                  <Text style={[
+                    styles.rank,
+                    index < 3 && styles.topThreeRank
+                  ]}>
+                    {getRankEmoji(index)}
+                  </Text>
+                </View>
+                
+                <View style={styles.avatarContainer}>
+                  <View style={styles.mobIcon}>
+                    <Text style={styles.mobIconText}>👥</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.userInfo}>
+                  <Text style={styles.username}>{mob.mob_name}</Text>
+                  <Text style={styles.displayName}>{mob.member_count} members</Text>
+                </View>
+                
+                <View style={styles.scoreContainer}>
+                  <Text style={styles.spotCount}>{mob.total_spots_owned}</Text>
+                  <Text style={styles.spotLabel}>spots</Text>
+                </View>
+              </View>
+            ))
+          )
         )}
         
-        {users.length > 0 && (
+        {((activeTab === 'users' && users.length > 0) || (activeTab === 'mobs' && mobs.length > 0)) && (
           <View style={styles.footerContainer}>
             <Text style={styles.footerText}>
-              Battle for spots to climb the leaderboard! 🚀
+              {activeTab === 'users' 
+                ? 'Battle for spots to climb the leaderboard! 🚀'
+                : 'Join forces with your mob to dominate! 👥'
+              }
             </Text>
           </View>
         )}
@@ -176,7 +257,13 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#666' },
+  subtitle: { fontSize: 16, color: '#666', marginBottom: 16 },
+  
+  tabContainer: { flexDirection: 'row', backgroundColor: '#f0f0f0', borderRadius: 8, padding: 4 },
+  tab: { flex: 1, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, alignItems: 'center' },
+  activeTab: { backgroundColor: '#007AFF' },
+  tabText: { fontSize: 14, fontWeight: '500', color: '#666' },
+  activeTabText: { color: '#fff' },
   
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { fontSize: 16, color: '#666' },
@@ -224,6 +311,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center' 
   },
   avatarText: { fontSize: 20 },
+  
+  mobIcon: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#007AFF', 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  mobIconText: { fontSize: 20, color: '#fff' },
   
   userInfo: { flex: 1 },
   username: { fontSize: 16, fontWeight: 'bold', color: '#007AFF', marginBottom: 2 },

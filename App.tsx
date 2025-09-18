@@ -10,6 +10,7 @@ import MapScreen from './src/screens/MapScreen';
 import SpotScreen from './src/screens/SpotScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
+import MyMobScreen from './src/screens/MyMobScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -50,6 +51,15 @@ function MainTabs() {
         options={{
           tabBarIcon: ({ color, size }) => (
             <Text style={{ fontSize: size, color }}>🏆</Text>
+          )
+        }}
+      />
+      <Tab.Screen 
+        name="My Mob" 
+        component={MyMobScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>👥</Text>
           )
         }}
       />
