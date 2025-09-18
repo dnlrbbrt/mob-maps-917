@@ -17,7 +17,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Record skate clips",
         "NSMicrophoneUsageDescription": "Audio for clips",
-        "NSLocationWhenInUseUsageDescription": "Find local skate spots",
+        "NSLocationWhenInUseUsageDescription": "Center map on your location and find nearby skate spots",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Center map on your location and find nearby skate spots",
         "NSPhotoLibraryAddUsageDescription": "Save and upload spot photos"
       }
     },
@@ -32,6 +33,7 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"
       ]

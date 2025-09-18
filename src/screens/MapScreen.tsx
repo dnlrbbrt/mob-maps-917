@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { View, Modal, Image, TextInput, Button, StyleSheet, Text, Alert, TouchableOpacity } from 'react-native';
-import MapView, { MapPressEvent, Marker, Callout } from 'react-native-maps';
+import MapView, { MapPressEvent, Marker, Callout, Region } from 'react-native-maps';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
 
@@ -14,13 +15,101 @@ export default function MapScreen({ navigation }: any) {
   const [title, setTitle] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mapRegion, setMapRegion] = useState<Region | null>(null);
+  const [shouldLoadSpots, setShouldLoadSpots] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from('spots').select('*').order('created_at', { ascending: false });
-      setSpots(data || []);
-    })();
+    getCurrentLocation();
   }, []);
+
+  useEffect(() => {
+    if (shouldLoadSpots && mapRegion) {
+      loadSpotsInRegion();
+    }
+  }, [shouldLoadSpots, mapRegion]);
+
+  async function getCurrentLocation() {
+    try {
+      // Request location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Location permission denied');
+        // Fallback to default location (San Francisco)
+        setMapRegion({
+          latitude: 37.7749,
+          longitude: -122.4194,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05
+        });
+        return;
+      }
+
+      // Get current location
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced
+      });
+
+      const region = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.05, // City-level zoom
+        longitudeDelta: 0.05
+      };
+
+      setMapRegion(region);
+      
+      // Check if we should load spots at this zoom level
+      checkZoomLevel(region);
+    } catch (error) {
+      console.error('Error getting location:', error);
+      // Fallback to default location
+      setMapRegion({
+        latitude: 37.7749,
+        longitude: -122.4194,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05
+      });
+    }
+  }
+
+  function checkZoomLevel(region: Region) {
+    // Load spots when zoomed to multi-city level or closer
+    // latitudeDelta < 0.5 allows seeing spots across multiple cities/metro areas
+    const isMultiCityLevel = region.latitudeDelta < 0.5 && region.longitudeDelta < 0.5;
+    setShouldLoadSpots(isMultiCityLevel);
+  }
+
+  async function loadSpotsInRegion() {
+    if (!mapRegion) return;
+    
+    try {
+      // Calculate bounding box for current region
+      const northLat = mapRegion.latitude + mapRegion.latitudeDelta / 2;
+      const southLat = mapRegion.latitude - mapRegion.latitudeDelta / 2;
+      const eastLng = mapRegion.longitude + mapRegion.longitudeDelta / 2;
+      const westLng = mapRegion.longitude - mapRegion.longitudeDelta / 2;
+
+      // Query spots within the visible region
+      const { data } = await supabase
+        .from('spots')
+        .select('*')
+        .gte('lat', southLat)
+        .lte('lat', northLat)
+        .gte('lng', westLng)
+        .lte('lng', eastLng)
+        .order('created_at', { ascending: false });
+
+      console.log(`Loaded ${data?.length || 0} spots in region`);
+      setSpots(data || []);
+    } catch (error) {
+      console.error('Error loading spots:', error);
+    }
+  }
+
+  function onRegionChangeComplete(region: Region) {
+    setMapRegion(region);
+    checkZoomLevel(region);
+  }
 
   function onLongPress(e: MapPressEvent) {
     const c = e.nativeEvent.coordinate;
@@ -82,8 +171,15 @@ export default function MapScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1 }}>
-      <MapView style={{ flex: 1 }} onLongPress={onLongPress}>
-        {spots.map((s) => (
+      <MapView 
+        style={{ flex: 1 }} 
+        onLongPress={onLongPress}
+        region={mapRegion || undefined}
+        onRegionChangeComplete={onRegionChangeComplete}
+        showsUserLocation={true}
+        showsMyLocationButton={false}
+      >
+        {shouldLoadSpots && spots.map((s) => (
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }}>
             <Callout onPress={() => navigation.navigate('Spot', { spot: s })}>
               <View style={styles.callout}>
@@ -97,6 +193,13 @@ export default function MapScreen({ navigation }: any) {
           </Marker>
         ))}
       </MapView>
+      
+      {/* Zoom level indicator */}
+      {!shouldLoadSpots && (
+        <View style={styles.zoomIndicator}>
+          <Text style={styles.zoomText}>🔍 Zoom in to see spots</Text>
+        </View>
+      )}
       <Modal visible={modalVisible} animationType="slide" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modal}>
           <Text style={styles.header}>Create spot</Text>
@@ -124,7 +227,18 @@ const styles = StyleSheet.create({
   callout: { width: 200, padding: 8 },
   calloutImage: { width: '100%', height: 100, borderRadius: 4, marginBottom: 4 },
   calloutTitle: { fontSize: 16, fontWeight: 'bold' },
-  calloutSubtitle: { fontSize: 12, color: '#666' }
+  calloutSubtitle: { fontSize: 12, color: '#666' },
+  zoomIndicator: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  zoomText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
 });
 
 
