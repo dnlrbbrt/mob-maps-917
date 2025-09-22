@@ -27,7 +27,10 @@ export default function SpotScreen({ route, navigation }: any) {
   const { spot } = route.params;
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
+  // Video playback state
+  const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+
   // Surveillance state
   const [trickName, setTrickName] = useState('');
   const [videoPart, setVideoPart] = useState('');
@@ -227,11 +230,15 @@ export default function SpotScreen({ route, navigation }: any) {
           user_id: userData.user.id
         }]);
       }
-      
+
       loadClips(); // Refresh to show updated vote counts
     } catch (e: any) {
       Alert.alert('Vote failed', e.message);
     }
+  }
+
+  function playClip(clipId: string) {
+    setPlayingClipId(playingClipId === clipId ? null : clipId);
   }
 
   async function addSurveillance() {
@@ -271,7 +278,8 @@ export default function SpotScreen({ route, navigation }: any) {
     return supabase.storage.from('spots-photos').getPublicUrl(spot.photo_path).data.publicUrl;
   }
 
-  const topClips = clips.slice(0, 3);
+  // Show all clips with rankings
+  const rankedClips = clips;
 
   return (
     <View style={styles.container}>
@@ -285,8 +293,8 @@ export default function SpotScreen({ route, navigation }: any) {
       <ScrollView style={styles.scrollContainer}>
         {/* Spot Photo */}
         <View style={styles.spotPhotoSection}>
-          {spot.photo_path ? (
-            <Image source={{ uri: getSpotImageUrl() }} style={styles.spotPhoto} />
+          {spot.photo_path && getSpotImageUrl() ? (
+            <Image source={{ uri: getSpotImageUrl()! }} style={styles.spotPhoto} />
           ) : (
             <View style={styles.noPhotoPlaceholder}>
               <Text style={styles.noPhotoText}>No photo available</Text>
@@ -294,21 +302,43 @@ export default function SpotScreen({ route, navigation }: any) {
           )}
         </View>
 
-        {/* Top 3 Clips */}
+        {/* All Clips */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🏆 Top 3 Clips</Text>
-          {topClips.length === 0 ? (
+          <Text style={styles.sectionTitle}>🎥 All Clips</Text>
+          {rankedClips.length === 0 ? (
             <Text style={styles.noClips}>No clips yet. Be the first to battle!</Text>
           ) : (
-            topClips.map((clip, index) => (
+            rankedClips.map((clip, index) => (
               <View key={clip.id} style={styles.clipCard}>
                 <Text style={styles.clipRank}>#{index + 1}</Text>
-                {clip.thumb_path && (
-                  <Image 
-                    source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.thumb_path).data.publicUrl}` }}
-                    style={styles.thumbnail}
-                  />
-                )}
+                <TouchableOpacity onPress={() => playClip(clip.id)} style={styles.thumbnailContainer}>
+                  {playingClipId === clip.id ? (
+                    <Video
+                      source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.storage_path).data.publicUrl}` }}
+                      style={styles.videoPlayer}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={true}
+                      isLooping={true}
+                      useNativeControls={true}
+                      onError={(error) => {
+                        console.error('Video error:', error);
+                        setPlayingClipId(null);
+                      }}
+                    />
+                  ) : (
+                    clip.thumb_path && (
+                      <Image
+                        source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.thumb_path).data.publicUrl}` }}
+                        style={styles.thumbnail}
+                      />
+                    )
+                  )}
+                  {!playingClipId || playingClipId !== clip.id ? (
+                    <View style={styles.playOverlay}>
+                      <Text style={styles.playIcon}>▶️</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
                 <View style={styles.clipInfo}>
                   <View style={styles.clipDetails}>
                     <Text style={styles.username}>@{clip.profiles?.username || 'anonymous'}</Text>
@@ -394,7 +424,11 @@ const styles = StyleSheet.create({
   noClips: { textAlign: 'center', color: colors.textSecondary, fontSize: 16, fontStyle: 'italic' },
   clipCard: { flexDirection: 'row', marginBottom: 12, backgroundColor: colors.surface, borderRadius: 8, padding: 12, alignItems: 'center' },
   clipRank: { fontSize: 18, fontWeight: 'bold', color: colors.primary, marginRight: 12, minWidth: 30 },
+  thumbnailContainer: { position: 'relative' },
   thumbnail: { width: 80, height: 60, borderRadius: 4 },
+  videoPlayer: { width: 80, height: 60, borderRadius: 4 },
+  playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 4 },
+  playIcon: { fontSize: 20 },
   clipInfo: { flex: 1, marginLeft: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   clipDetails: { flex: 1 },
   username: { fontSize: 14, color: colors.primary, fontWeight: '500', marginBottom: 2 },
