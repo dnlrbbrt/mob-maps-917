@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput, Modal } from 'react-native';
 // Camera removed - only using library picker
 import { Video, ResizeMode } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -238,7 +238,11 @@ export default function SpotScreen({ route, navigation }: any) {
   }
 
   function playClip(clipId: string) {
-    setPlayingClipId(playingClipId === clipId ? null : clipId);
+    setPlayingClipId(clipId);
+  }
+
+  function closeVideo() {
+    setPlayingClipId(null);
   }
 
   async function addSurveillance() {
@@ -312,32 +316,15 @@ export default function SpotScreen({ route, navigation }: any) {
               <View key={clip.id} style={styles.clipCard}>
                 <Text style={styles.clipRank}>#{index + 1}</Text>
                 <TouchableOpacity onPress={() => playClip(clip.id)} style={styles.thumbnailContainer}>
-                  {playingClipId === clip.id ? (
-                    <Video
-                      source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.storage_path).data.publicUrl}` }}
-                      style={styles.videoPlayer}
-                      resizeMode={ResizeMode.CONTAIN}
-                      shouldPlay={true}
-                      isLooping={true}
-                      useNativeControls={true}
-                      onError={(error) => {
-                        console.error('Video error:', error);
-                        setPlayingClipId(null);
-                      }}
+                  {clip.thumb_path && (
+                    <Image
+                      source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.thumb_path).data.publicUrl}` }}
+                      style={styles.thumbnail}
                     />
-                  ) : (
-                    clip.thumb_path && (
-                      <Image
-                        source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.thumb_path).data.publicUrl}` }}
-                        style={styles.thumbnail}
-                      />
-                    )
                   )}
-                  {!playingClipId || playingClipId !== clip.id ? (
-                    <View style={styles.playOverlay}>
-                      <Text style={styles.playIcon}>▶️</Text>
-                    </View>
-                  ) : null}
+                  <View style={styles.playOverlay}>
+                    <Text style={styles.playIcon}>▶️</Text>
+                  </View>
                 </TouchableOpacity>
                 <View style={styles.clipInfo}>
                   <View style={styles.clipDetails}>
@@ -397,6 +384,55 @@ export default function SpotScreen({ route, navigation }: any) {
           ))}
         </View>
       </ScrollView>
+
+      {/* Fullscreen Video Modal */}
+      <Modal
+        visible={playingClipId !== null}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={closeVideo}
+      >
+        <View style={styles.videoModalContainer}>
+          <TouchableOpacity style={styles.closeButton} onPress={closeVideo}>
+            <Text style={styles.closeButtonText}>✕ Close</Text>
+          </TouchableOpacity>
+          {playingClipId && (
+            <Video
+              source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clips.find(c => c.id === playingClipId)?.storage_path || '').data.publicUrl}` }}
+              style={styles.fullscreenVideo}
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay={true}
+              isLooping={true}
+              useNativeControls={true}
+              onError={(error) => {
+                console.error('Video error:', error);
+                setPlayingClipId(null);
+              }}
+            />
+          )}
+          {/* Show clip info overlay */}
+          {playingClipId && (
+            <View style={styles.videoInfoOverlay}>
+              {clips.find(c => c.id === playingClipId) && (
+                <>
+                  <Text style={styles.videoUsername}>
+                    @{clips.find(c => c.id === playingClipId)?.profiles?.username || 'anonymous'}
+                  </Text>
+                  <Text style={styles.videoVoteCount}>
+                    ❤️ {clips.find(c => c.id === playingClipId)?.vote_count || 0}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.fullscreenVoteButton}
+                    onPress={() => playingClipId && vote(playingClipId)}
+                  >
+                    <Text style={styles.fullscreenVoteText}>Vote</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -426,7 +462,6 @@ const styles = StyleSheet.create({
   clipRank: { fontSize: 18, fontWeight: 'bold', color: colors.primary, marginRight: 12, minWidth: 30 },
   thumbnailContainer: { position: 'relative' },
   thumbnail: { width: 80, height: 60, borderRadius: 4 },
-  videoPlayer: { width: 80, height: 60, borderRadius: 4 },
   playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 4 },
   playIcon: { fontSize: 20 },
   clipInfo: { flex: 1, marginLeft: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -458,5 +493,65 @@ const styles = StyleSheet.create({
   trickText: { fontSize: 16, fontWeight: 'bold', marginBottom: 4, color: colors.text },
   videoPartText: { fontSize: 14, color: colors.textSecondary },
   
+  // Fullscreen video modal
+  videoModalContainer: { 
+    flex: 1, 
+    backgroundColor: 'black', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  closeButton: { 
+    position: 'absolute', 
+    top: 50, 
+    right: 20, 
+    zIndex: 1000, 
+    backgroundColor: 'rgba(0,0,0,0.8)', 
+    padding: 12, 
+    borderRadius: 8 
+  },
+  closeButtonText: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+  fullscreenVideo: { 
+    width: width, 
+    height: width * (16/9), // 16:9 aspect ratio
+    maxHeight: '80%' 
+  },
+  videoInfoOverlay: { 
+    position: 'absolute', 
+    bottom: 100, 
+    left: 20, 
+    right: 20, 
+    backgroundColor: 'rgba(0,0,0,0.8)', 
+    padding: 16, 
+    borderRadius: 8, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between' 
+  },
+  videoUsername: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+  videoVoteCount: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+  fullscreenVoteButton: { 
+    backgroundColor: colors.primary, 
+    paddingHorizontal: 16, 
+    paddingVertical: 8, 
+    borderRadius: 6 
+  },
+  fullscreenVoteText: { 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: 14 
+  },
+
   // Camera functionality removed
 });
