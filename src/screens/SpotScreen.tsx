@@ -6,6 +6,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
+import { colors } from '../constants/colors';
 
 const { width } = Dimensions.get('window');
 
@@ -53,10 +54,17 @@ export default function SpotScreen({ route, navigation }: any) {
   }
 
   async function loadSurveillance() {
-    // For now, we'll use localStorage-style storage. In production, add a surveillance table
-    // const { data } = await supabase.from('surveillance').select('*').eq('spot_id', spot.id);
-    // setSurveillance(data || []);
-    setSurveillance([]); // Placeholder
+    try {
+      const { data } = await supabase
+        .from('surveillance')
+        .select('*')
+        .eq('spot_id', spot.id)
+        .order('created_at', { ascending: false });
+      setSurveillance(data || []);
+    } catch (error) {
+      console.error('Error loading surveillance:', error);
+      setSurveillance([]); // Fallback to empty array
+    }
   }
 
   async function pickVideoFromLibrary() {
@@ -119,6 +127,9 @@ export default function SpotScreen({ route, navigation }: any) {
         if (profileCreateError) {
           throw new Error(`Failed to create profile: ${profileCreateError.message}`);
         }
+        
+        // Refresh clips after profile creation to show correct username
+        await loadClips();
       }
 
       const videoFileName = `${Date.now()}.mp4`;
@@ -226,17 +237,33 @@ export default function SpotScreen({ route, navigation }: any) {
   async function addSurveillance() {
     if (!trickName || !videoPart) return Alert.alert('Missing info', 'Please enter both trick and video part');
     
-    const newEntry = {
-      id: Date.now().toString(),
-      trick: trickName,
-      videoPart: videoPart,
-      spotId: spot.id
-    };
-    
-    setSurveillance(prev => [newEntry, ...prev]);
-    setTrickName('');
-    setVideoPart('');
-    Alert.alert('Added', 'Surveillance entry added!');
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) {
+        Alert.alert('Not signed in', 'Please sign in before adding surveillance.');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('surveillance')
+        .insert([{
+          spot_id: spot.id,
+          user_id: userData.user.id,
+          trick_name: trickName,
+          video_part: videoPart
+        }])
+        .select('*');
+
+      if (error) throw error;
+
+      setSurveillance(prev => [data![0], ...prev]);
+      setTrickName('');
+      setVideoPart('');
+      Alert.alert('Added', 'Surveillance entry added!');
+    } catch (e: any) {
+      console.error('addSurveillance error', e);
+      Alert.alert('Error', `Failed to add surveillance: ${e.message}`);
+    }
   }
 
   function getSpotImageUrl() {
@@ -316,12 +343,14 @@ export default function SpotScreen({ route, navigation }: any) {
             <TextInput
               style={styles.input}
               placeholder="Trick name (e.g., kickflip backside lipslide)"
+              placeholderTextColor={colors.textTertiary}
               value={trickName}
               onChangeText={setTrickName}
             />
             <TextInput
               style={styles.input}
               placeholder="Video part (e.g., Baker 3, Koston in Menikmati)"
+              placeholderTextColor={colors.textTertiary}
               value={videoPart}
               onChangeText={setVideoPart}
             />
@@ -332,8 +361,8 @@ export default function SpotScreen({ route, navigation }: any) {
 
           {surveillance.map((entry) => (
             <View key={entry.id} style={styles.surveillanceEntry}>
-              <Text style={styles.trickText}>{entry.trick}</Text>
-              <Text style={styles.videoPartText}>{entry.videoPart}</Text>
+              <Text style={styles.trickText}>{entry.trick_name}</Text>
+              <Text style={styles.videoPartText}>{entry.video_part}</Text>
             </View>
           ))}
         </View>
@@ -343,48 +372,57 @@ export default function SpotScreen({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingTop: 48, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  container: { flex: 1, backgroundColor: colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingTop: 48, borderBottomWidth: 1, borderBottomColor: colors.border },
   backButton: { marginRight: 16 },
-  backText: { fontSize: 16, color: '#007AFF' },
-  title: { flex: 1, fontSize: 20, fontWeight: 'bold' },
+  backText: { fontSize: 16, color: colors.primary },
+  title: { flex: 1, fontSize: 20, fontWeight: 'bold', color: colors.text },
   scrollContainer: { flex: 1 },
   
   // Spot photo section
   spotPhotoSection: { padding: 16 },
   spotPhoto: { width: '100%', height: 200, borderRadius: 12 },
-  noPhotoPlaceholder: { width: '100%', height: 200, backgroundColor: '#f0f0f0', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  noPhotoText: { color: '#666', fontSize: 16 },
+  noPhotoPlaceholder: { width: '100%', height: 200, backgroundColor: colors.surface, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  noPhotoText: { color: colors.textSecondary, fontSize: 16 },
   
   // Section styles
-  section: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  sectionSubtitle: { fontSize: 14, color: '#666', marginBottom: 16 },
+  section: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8, color: colors.text },
+  sectionSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 16 },
   
   // Clips
-  noClips: { textAlign: 'center', color: '#666', fontSize: 16, fontStyle: 'italic' },
-  clipCard: { flexDirection: 'row', marginBottom: 12, backgroundColor: '#f9f9f9', borderRadius: 8, padding: 12, alignItems: 'center' },
-  clipRank: { fontSize: 18, fontWeight: 'bold', color: '#FF6B35', marginRight: 12, minWidth: 30 },
+  noClips: { textAlign: 'center', color: colors.textSecondary, fontSize: 16, fontStyle: 'italic' },
+  clipCard: { flexDirection: 'row', marginBottom: 12, backgroundColor: colors.surface, borderRadius: 8, padding: 12, alignItems: 'center' },
+  clipRank: { fontSize: 18, fontWeight: 'bold', color: colors.primary, marginRight: 12, minWidth: 30 },
   thumbnail: { width: 80, height: 60, borderRadius: 4 },
   clipInfo: { flex: 1, marginLeft: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   clipDetails: { flex: 1 },
-  username: { fontSize: 14, color: '#007AFF', fontWeight: '500', marginBottom: 2 },
-  voteCount: { fontSize: 16, fontWeight: 'bold' },
-  voteButton: { backgroundColor: '#007AFF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
-  voteText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+  username: { fontSize: 14, color: colors.primary, fontWeight: '500', marginBottom: 2 },
+  voteCount: { fontSize: 16, fontWeight: 'bold', color: colors.text },
+  voteButton: { backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
+  voteText: { color: colors.text, fontWeight: 'bold', fontSize: 12 },
   
   // Upload section
-  uploadButton: { backgroundColor: '#FF3B30', padding: 16, borderRadius: 8, alignItems: 'center' },
-  uploadButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  uploadButton: { backgroundColor: colors.error, padding: 16, borderRadius: 8, alignItems: 'center' },
+  uploadButtonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },
   
   // Surveillance section
   surveillanceForm: { marginBottom: 16 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, marginBottom: 8, fontSize: 16 },
-  addButton: { backgroundColor: '#34C759', padding: 12, borderRadius: 8, alignItems: 'center' },
-  addButtonText: { color: '#fff', fontWeight: 'bold' },
-  surveillanceEntry: { backgroundColor: '#f8f8f8', padding: 12, borderRadius: 8, marginBottom: 8 },
-  trickText: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
-  videoPartText: { fontSize: 14, color: '#666' },
+  input: { 
+    borderWidth: 1, 
+    borderColor: colors.inputBorder, 
+    backgroundColor: colors.input,
+    borderRadius: 8, 
+    padding: 12, 
+    marginBottom: 8, 
+    fontSize: 16,
+    color: colors.text
+  },
+  addButton: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
+  addButtonText: { color: colors.text, fontWeight: 'bold' },
+  surveillanceEntry: { backgroundColor: colors.surface, padding: 12, borderRadius: 8, marginBottom: 8 },
+  trickText: { fontSize: 16, fontWeight: 'bold', marginBottom: 4, color: colors.text },
+  videoPartText: { fontSize: 14, color: colors.textSecondary },
   
   // Camera functionality removed
 });

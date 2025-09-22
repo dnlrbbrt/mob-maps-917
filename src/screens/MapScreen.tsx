@@ -90,10 +90,13 @@ export default function MapScreen({ navigation }: any) {
       const eastLng = mapRegion.longitude + mapRegion.longitudeDelta / 2;
       const westLng = mapRegion.longitude - mapRegion.longitudeDelta / 2;
 
-      // Query spots within the visible region
+      // Query spots within the visible region with clip count
       const { data } = await supabase
         .from('spots')
-        .select('*')
+        .select(`
+          *,
+          clips:clips(count)
+        `)
         .gte('lat', southLat)
         .lte('lat', northLat)
         .gte('lng', westLng)
@@ -170,6 +173,12 @@ export default function MapScreen({ navigation }: any) {
     return url;
   }
 
+  function getMarkerColor(spot: any) {
+    // Check if spot has clips - red if has clips, green if no clips
+    const hasClips = spot.clips && spot.clips.length > 0 && spot.clips[0].count > 0;
+    return hasClips ? '#FF0000' : '#00FF00'; // Red if has clips, green if no clips
+  }
+
   return (
     <View style={{ flex: 1 }}>
       <MapView 
@@ -181,7 +190,11 @@ export default function MapScreen({ navigation }: any) {
         showsMyLocationButton={false}
       >
         {shouldLoadSpots && spots.map((s) => (
-          <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }}>
+          <Marker 
+            key={s.id} 
+            coordinate={{ latitude: s.lat, longitude: s.lng }}
+            pinColor={getMarkerColor(s)}
+          >
             <Callout onPress={() => navigation.navigate('Spot', { spot: s })}>
               <View style={styles.callout}>
                 {s.photo_path && (
