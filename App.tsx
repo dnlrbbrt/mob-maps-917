@@ -11,6 +11,7 @@ import SpotScreen from './src/screens/SpotScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import MyMobScreen from './src/screens/MyMobScreen';
+import AdminScreen from './src/screens/AdminScreen';
 import { colors } from './src/constants/colors';
 
 const Stack = createNativeStackNavigator();
@@ -82,6 +83,7 @@ function MapStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MapMain" component={MapScreen} />
       <Stack.Screen name="Spot" component={SpotScreen} />
+      <Stack.Screen name="Admin" component={AdminScreen} />
     </Stack.Navigator>
   );
 }

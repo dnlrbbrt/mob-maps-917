@@ -125,12 +125,12 @@ export default function LeaderboardScreen() {
         
         {/* Tab Switcher */}
         <View style={styles.tabContainer}>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'users' && styles.activeTab]} 
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'users' && styles.activeTab]}
             onPress={() => setActiveTab('users')}
           >
             <Text style={[styles.tabText, activeTab === 'users' && styles.activeTabText]}>
-              👤 Users
+              👤 Associates
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -235,8 +235,8 @@ export default function LeaderboardScreen() {
         {((activeTab === 'users' && users.length > 0) || (activeTab === 'mobs' && mobs.length > 0)) && (
           <View style={styles.footerContainer}>
             <Text style={styles.footerText}>
-              {activeTab === 'users' 
-                ? 'Battle for spots to climb the leaderboard! 🚀'
+              {activeTab === 'users'
+                ? 'Battle for territory to climb the leaderboard! 🚀'
                 : 'Join forces with your mob to dominate! 👥'
               }
             </Text>

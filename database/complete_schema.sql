@@ -324,19 +324,19 @@ DROP POLICY IF EXISTS "Profiles update own" ON public.profiles;
 CREATE POLICY "Profiles update own" ON public.profiles
   FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 
--- Spots: Publicly readable, but only authenticated users can create them.
+-- Spots: Publicly readable (except hidden), but only authenticated users can create them.
 DROP POLICY IF EXISTS "Spots select public" ON public.spots;
 CREATE POLICY "Spots select public" ON public.spots
-  FOR SELECT TO anon, authenticated USING (true);
+  FOR SELECT TO anon, authenticated USING (moderation_status != 'hidden');
 
 DROP POLICY IF EXISTS "Spots insert auth" ON public.spots;
 CREATE POLICY "Spots insert auth" ON public.spots
   FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL);
 
--- Clips: Public can see non-flagged clips. Owners can see their own clips even if flagged.
+-- Clips: Public can see non-hidden clips. Owners can see their own clips even if hidden.
 DROP POLICY IF EXISTS "Clips select public" ON public.clips;
 CREATE POLICY "Clips select public" ON public.clips
-  FOR SELECT TO anon, authenticated USING ((flagged = false) OR (user_id = auth.uid()));
+  FOR SELECT TO anon, authenticated USING ((moderation_status != 'hidden') OR (user_id = auth.uid()));
 
 DROP POLICY IF EXISTS "Clips insert own" ON public.clips;
 CREATE POLICY "Clips insert own" ON public.clips
@@ -402,6 +402,21 @@ DROP POLICY IF EXISTS "mob_members_delete_own" ON public.mob_members;
 CREATE POLICY "mob_members_delete_own" ON public.mob_members
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
+-- Flags: Users can see all flags, but can only manage their own.
+ALTER TABLE public.flags ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "flags_select_auth" ON public.flags;
+CREATE POLICY "flags_select_auth" ON public.flags
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "flags_insert_own" ON public.flags;
+CREATE POLICY "flags_insert_own" ON public.flags
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "flags_delete_own" ON public.flags;
+CREATE POLICY "flags_delete_own" ON public.flags
+  FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
 -- =========================================================
 -- STORAGE POLICIES
 -- =========================================================
@@ -452,3 +467,151 @@ WHERE table_name = 'mob_members' AND table_schema = 'public';
 ALTER TABLE public.mob_members 
 ADD CONSTRAINT mob_members_mob_id_user_id_unique 
 UNIQUE (mob_id, user_id);
+
+-- =========================================================
+-- MODERATION SYSTEM
+-- =========================================================
+
+-- Add moderation fields to clips table
+ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS moderation_status TEXT DEFAULT 'approved';
+ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS flag_count INTEGER DEFAULT 0;
+ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ;
+
+-- Add moderation fields to spots table  
+ALTER TABLE public.spots ADD COLUMN IF NOT EXISTS moderation_status TEXT DEFAULT 'approved';
+ALTER TABLE public.spots ADD COLUMN IF NOT EXISTS flag_count INTEGER DEFAULT 0;
+ALTER TABLE public.spots ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ;
+
+-- Create flags table for tracking who flagged what
+CREATE TABLE IF NOT EXISTS public.flags (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  clip_id uuid REFERENCES public.clips(id) ON DELETE CASCADE,
+  spot_id uuid REFERENCES public.spots(id) ON DELETE CASCADE,
+  reason TEXT,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (user_id, clip_id),
+  UNIQUE (user_id, spot_id),
+  CHECK ((clip_id IS NOT NULL AND spot_id IS NULL) OR (clip_id IS NULL AND spot_id IS NOT NULL))
+);
+
+-- Function to auto-hide content after 4 flags
+CREATE OR REPLACE FUNCTION public.check_auto_hide()
+RETURNS trigger AS $$
+BEGIN
+  -- For clips
+  IF NEW.clip_id IS NOT NULL THEN
+    UPDATE public.clips 
+    SET moderation_status = 'hidden', hidden_at = NOW()
+    WHERE id = NEW.clip_id 
+    AND (SELECT COUNT(*) FROM public.flags WHERE clip_id = NEW.clip_id) >= 4
+    AND moderation_status = 'approved';
+  END IF;
+  
+  -- For spots
+  IF NEW.spot_id IS NOT NULL THEN
+    UPDATE public.spots 
+    SET moderation_status = 'hidden', hidden_at = NOW()
+    WHERE id = NEW.spot_id 
+    AND (SELECT COUNT(*) FROM public.flags WHERE spot_id = NEW.spot_id) >= 4
+    AND moderation_status = 'approved';
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to auto-hide after flags
+DROP TRIGGER IF EXISTS trigger_auto_hide ON public.flags;
+CREATE TRIGGER trigger_auto_hide
+  AFTER INSERT ON public.flags
+  FOR EACH ROW EXECUTE FUNCTION public.check_auto_hide();
+
+-- Function to update flag counts
+CREATE OR REPLACE FUNCTION public.update_flag_count()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- Increment flag count
+    IF NEW.clip_id IS NOT NULL THEN
+      UPDATE public.clips SET flag_count = flag_count + 1 WHERE id = NEW.clip_id;
+    ELSIF NEW.spot_id IS NOT NULL THEN
+      UPDATE public.spots SET flag_count = flag_count + 1 WHERE id = NEW.spot_id;
+    END IF;
+    RETURN NEW;
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Decrement flag count
+    IF OLD.clip_id IS NOT NULL THEN
+      UPDATE public.clips SET flag_count = GREATEST(flag_count - 1, 0) WHERE id = OLD.clip_id;
+    ELSIF OLD.spot_id IS NOT NULL THEN
+      UPDATE public.spots SET flag_count = GREATEST(flag_count - 1, 0) WHERE id = OLD.spot_id;
+    END IF;
+    RETURN OLD;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to update flag counts
+DROP TRIGGER IF EXISTS trigger_update_flag_count_insert ON public.flags;
+CREATE TRIGGER trigger_update_flag_count_insert
+  AFTER INSERT ON public.flags
+  FOR EACH ROW EXECUTE FUNCTION public.update_flag_count();
+
+DROP TRIGGER IF EXISTS trigger_update_flag_count_delete ON public.flags;
+CREATE TRIGGER trigger_update_flag_count_delete
+  AFTER DELETE ON public.flags
+  FOR EACH ROW EXECUTE FUNCTION public.update_flag_count();
+
+-- Admin function to get flagged content
+CREATE OR REPLACE FUNCTION public.get_flagged_content()
+RETURNS TABLE (
+  content_type TEXT,
+  content_id uuid,
+  flag_count INTEGER,
+  moderation_status TEXT,
+  hidden_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ,
+  content_data JSONB
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    'clip'::TEXT as content_type,
+    c.id as content_id,
+    c.flag_count,
+    c.moderation_status,
+    c.hidden_at,
+    c.created_at,
+    jsonb_build_object(
+      'storage_path', c.storage_path,
+      'thumb_path', c.thumb_path,
+      'user_id', c.user_id,
+      'spot_id', c.spot_id,
+      'vote_count', c.vote_count
+    ) as content_data
+  FROM public.clips c
+  WHERE c.flag_count > 0 OR c.moderation_status != 'approved'
+  
+  UNION ALL
+  
+  SELECT 
+    'spot'::TEXT as content_type,
+    s.id as content_id,
+    s.flag_count,
+    s.moderation_status,
+    s.hidden_at,
+    s.created_at,
+    jsonb_build_object(
+      'title', s.title,
+      'photo_path', s.photo_path,
+      'lat', s.lat,
+      'lng', s.lng,
+      'owner_user_id', s.owner_user_id
+    ) as content_data
+  FROM public.spots s
+  WHERE s.flag_count > 0 OR s.moderation_status != 'approved'
+  
+  ORDER BY hidden_at DESC NULLS LAST, flag_count DESC, created_at DESC;
+END;
+$$ LANGUAGE plpgsql;

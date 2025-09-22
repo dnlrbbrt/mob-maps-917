@@ -201,7 +201,7 @@ export default function MapScreen({ navigation }: any) {
                   <Image source={{ uri: getSpotImageUrl(s) }} style={styles.calloutImage} />
                 )}
                 <Text style={styles.calloutTitle}>{s.title || 'Spot'}</Text>
-                <Text style={styles.calloutSubtitle}>Tap to battle!</Text>
+                <Text style={styles.calloutSubtitle}>Tap to claim territory!</Text>
               </View>
             </Callout>
           </Marker>

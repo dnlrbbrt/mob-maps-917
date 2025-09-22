@@ -245,6 +245,40 @@ export default function SpotScreen({ route, navigation }: any) {
     setPlayingClipId(null);
   }
 
+  async function flagContent(clipId: string, reason: string = 'inappropriate') {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) throw new Error('Not authenticated');
+
+      // Check if already flagged
+      const { data: existingFlag } = await supabase
+        .from('flags')
+        .select('*')
+        .eq('clip_id', clipId)
+        .eq('user_id', userData.user.id)
+        .single();
+
+      if (existingFlag) {
+        Alert.alert('Already reported', 'You have already reported this content.');
+        return;
+      }
+
+      // Add flag
+      const { error } = await supabase.from('flags').insert([{
+        clip_id: clipId,
+        user_id: userData.user.id,
+        reason: reason
+      }]);
+
+      if (error) throw error;
+
+      Alert.alert('Reported', 'Content has been reported for review. Thank you for helping keep our community safe.');
+      loadClips(); // Refresh to update flag counts
+    } catch (e: any) {
+      Alert.alert('Report failed', e.message);
+    }
+  }
+
   async function addSurveillance() {
     if (!trickName || !videoPart) return Alert.alert('Missing info', 'Please enter both trick and video part');
     
@@ -310,7 +344,7 @@ export default function SpotScreen({ route, navigation }: any) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🎥 All Clips</Text>
           {rankedClips.length === 0 ? (
-            <Text style={styles.noClips}>No clips yet. Be the first to battle!</Text>
+            <Text style={styles.noClips}>No clips yet. Be the first to claim territory!</Text>
           ) : (
             rankedClips.map((clip, index) => (
               <View key={clip.id} style={styles.clipCard}>
@@ -331,9 +365,14 @@ export default function SpotScreen({ route, navigation }: any) {
                     <Text style={styles.username}>@{clip.profiles?.username || 'anonymous'}</Text>
                     <Text style={styles.voteCount}>❤️ {clip.vote_count}</Text>
                   </View>
-                  <TouchableOpacity style={styles.voteButton} onPress={() => vote(clip.id)}>
-                    <Text style={styles.voteText}>Vote</Text>
-                  </TouchableOpacity>
+                  <View style={styles.clipActions}>
+                    <TouchableOpacity style={styles.voteButton} onPress={() => vote(clip.id)}>
+                      <Text style={styles.voteText}>Vote</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.flagButton} onPress={() => flagContent(clip.id)}>
+                      <Text style={styles.flagText}>🚩</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             ))
@@ -343,7 +382,7 @@ export default function SpotScreen({ route, navigation }: any) {
         {/* Upload Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📹 Upload Your Clip</Text>
-          <Text style={styles.sectionSubtitle}>Upload a video to battle for this spot</Text>
+          <Text style={styles.sectionSubtitle}>Upload a video to battle for this territory</Text>
           <TouchableOpacity style={styles.uploadButton} onPress={pickVideoFromLibrary} disabled={loading}>
             <Text style={styles.uploadButtonText}>
               {loading ? 'Uploading...' : '📱 Pick Video from Library'}
@@ -355,7 +394,7 @@ export default function SpotScreen({ route, navigation }: any) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>👁️ Surveillance</Text>
           <Text style={styles.sectionSubtitle}>Cite tricks done at this spot from video parts</Text>
-          
+
           <View style={styles.surveillanceForm}>
             <TextInput
               style={styles.input}
@@ -383,6 +422,9 @@ export default function SpotScreen({ route, navigation }: any) {
             </View>
           ))}
         </View>
+
+        {/* Extra padding at bottom for better scrolling */}
+        <View style={styles.bottomPadding} />
       </ScrollView>
 
       {/* Fullscreen Video Modal */}
@@ -421,12 +463,20 @@ export default function SpotScreen({ route, navigation }: any) {
                   <Text style={styles.videoVoteCount}>
                     ❤️ {clips.find(c => c.id === playingClipId)?.vote_count || 0}
                   </Text>
-                  <TouchableOpacity
-                    style={styles.fullscreenVoteButton}
-                    onPress={() => playingClipId && vote(playingClipId)}
-                  >
-                    <Text style={styles.fullscreenVoteText}>Vote</Text>
-                  </TouchableOpacity>
+                  <View style={styles.fullscreenActions}>
+                    <TouchableOpacity
+                      style={styles.fullscreenVoteButton}
+                      onPress={() => playingClipId && vote(playingClipId)}
+                    >
+                      <Text style={styles.fullscreenVoteText}>Vote</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.fullscreenFlagButton}
+                      onPress={() => playingClipId && flagContent(playingClipId)}
+                    >
+                      <Text style={styles.fullscreenFlagText}>🚩 Report</Text>
+                    </TouchableOpacity>
+                  </View>
                 </>
               )}
             </View>
@@ -468,8 +518,11 @@ const styles = StyleSheet.create({
   clipDetails: { flex: 1 },
   username: { fontSize: 14, color: colors.primary, fontWeight: '500', marginBottom: 2 },
   voteCount: { fontSize: 16, fontWeight: 'bold', color: colors.text },
+  clipActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   voteButton: { backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
   voteText: { color: colors.text, fontWeight: 'bold', fontSize: 12 },
+  flagButton: { backgroundColor: colors.error, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 },
+  flagText: { fontSize: 12 },
   
   // Upload section
   uploadButton: { backgroundColor: colors.error, padding: 16, borderRadius: 8, alignItems: 'center' },
@@ -541,6 +594,10 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     fontWeight: 'bold' 
   },
+  fullscreenActions: {
+    flexDirection: 'row',
+    gap: 12
+  },
   fullscreenVoteButton: { 
     backgroundColor: colors.primary, 
     paddingHorizontal: 16, 
@@ -551,6 +608,21 @@ const styles = StyleSheet.create({
     color: 'white', 
     fontWeight: 'bold', 
     fontSize: 14 
+  },
+  fullscreenFlagButton: { 
+    backgroundColor: colors.error, 
+    paddingHorizontal: 16, 
+    paddingVertical: 8, 
+    borderRadius: 6 
+  },
+  fullscreenFlagText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14
+  },
+
+  bottomPadding: {
+    height: 120, // Extra padding so users can scroll down and see all surveillance entries
   },
 
   // Camera functionality removed

@@ -19,11 +19,24 @@ export default function ProfileScreen({ navigation }: any) {
   const [spotsOwned, setSpotsOwned] = useState(0);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     loadProfile();
     loadSpotsOwned();
+    checkAdminStatus();
   }, []);
+
+  async function checkAdminStatus() {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData?.user?.email === 'dnlrbbrt@gmail.com') {
+        setIsAdmin(true);
+      }
+    } catch (error) {
+      console.error('Admin check error:', error);
+    }
+  }
 
   async function loadProfile() {
     try {
@@ -239,6 +252,16 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         </View>
 
+        {/* Admin Button */}
+        {isAdmin && (
+          <TouchableOpacity 
+            style={[styles.button, styles.adminButton]} 
+            onPress={() => navigation.navigate('Admin')}
+          >
+            <Text style={styles.buttonText}>🛡️ Admin Dashboard</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Edit Button */}
         {editing ? (
           <View style={styles.buttonRow}>
@@ -297,8 +320,9 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
   
   buttonRow: { flexDirection: 'row', width: '100%', gap: 10 },
-  button: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center' },
+  button: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
   editButton: { backgroundColor: colors.primary, width: '100%' },
+  adminButton: { backgroundColor: colors.error, width: '100%' },
   saveButton: { backgroundColor: colors.success },
   cancelButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   buttonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },
