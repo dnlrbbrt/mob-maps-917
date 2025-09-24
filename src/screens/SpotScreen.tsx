@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput, Modal, RefreshControl } from 'react-native';
 // Camera removed - only using library picker
 import { Video, ResizeMode } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -27,6 +27,7 @@ export default function SpotScreen({ route, navigation }: any) {
   const { spot } = route.params;
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Video playback state
   const [playingClipId, setPlayingClipId] = useState<string | null>(null);
@@ -40,6 +41,20 @@ export default function SpotScreen({ route, navigation }: any) {
     loadClips();
     loadSurveillance();
   }, []);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadClips(),
+        loadSurveillance()
+      ]);
+    } catch (e: any) {
+      console.error('Refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function loadClips() {
     const { data } = await supabase
@@ -361,7 +376,17 @@ export default function SpotScreen({ route, navigation }: any) {
         <Text style={styles.title}>{spot.title || 'Spot'}</Text>
       </View>
       
-      <ScrollView style={styles.scrollContainer}>
+      <ScrollView 
+        style={styles.scrollContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {/* Spot Photo */}
         <View style={styles.spotPhotoSection}>
           {spot.photo_path && getSpotImageUrl() ? (

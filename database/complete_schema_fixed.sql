@@ -433,6 +433,54 @@ BEGIN
 END $$;
 
 -- =========================================================
--- INITIAL DATA REPAIR (Optional: run once after deployment)
+-- SPOT OWNERSHIP & LEADERBOARD FIX
 -- =========================================================
--- SELECT public.recalculate_all_spot_owners();
+-- Fix vote count discrepancies and spot ownership issues
+
+-- Step 1: Fix any vote count discrepancies first
+-- Recalculate all clip vote counts based on actual votes
+UPDATE public.clips 
+SET vote_count = (
+  SELECT COUNT(*)::integer 
+  FROM public.votes v 
+  WHERE v.clip_id = clips.id
+);
+
+-- Step 2: Recalculate all spot ownership based on corrected vote counts
+UPDATE public.spots
+SET owner_user_id = (
+  SELECT c.user_id FROM public.clips c
+  WHERE c.spot_id = public.spots.id
+  ORDER BY c.vote_count DESC, c.created_at ASC
+  LIMIT 1
+) WHERE EXISTS (SELECT 1 FROM public.clips WHERE spot_id = public.spots.id);
+
+-- Step 3: Verify the fix with diagnostic query
+DO $$
+DECLARE
+    spot_record RECORD;
+    ownership_issues INTEGER := 0;
+BEGIN
+    FOR spot_record IN
+        SELECT 
+            s.id as spot_id,
+            s.title,
+            s.owner_user_id,
+            (SELECT c.user_id FROM public.clips c
+             WHERE c.spot_id = s.id 
+             ORDER BY c.vote_count DESC, c.created_at ASC 
+             LIMIT 1) as should_be_owner_id
+        FROM public.spots s
+        WHERE EXISTS (SELECT 1 FROM public.clips WHERE spot_id = s.id)
+    LOOP
+        IF spot_record.owner_user_id != spot_record.should_be_owner_id OR spot_record.owner_user_id IS NULL THEN
+            ownership_issues := ownership_issues + 1;
+        END IF;
+    END LOOP;
+    
+    IF ownership_issues = 0 THEN
+        RAISE NOTICE 'Spot ownership fix completed successfully. All spots have correct owners.';
+    ELSE
+        RAISE NOTICE 'Warning: % spots still have ownership issues after fix.', ownership_issues;
+    END IF;
+END $$;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, RefreshControl } from 'react-native';
 import { supabase } from '../../supabase';
 import { colors } from '../constants/colors';
 
@@ -18,10 +18,11 @@ type MobLeaderboard = {
   member_count: number;
 };
 
-export default function LeaderboardScreen() {
+export default function LeaderboardScreen({ navigation }: any) {
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [mobs, setMobs] = useState<MobLeaderboard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'users' | 'mobs'>('users');
 
   useEffect(() => {
@@ -56,6 +57,17 @@ export default function LeaderboardScreen() {
       await loadLeaderboardManual();
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await loadLeaderboards();
+    } catch (e: any) {
+      console.error('Refresh error:', e);
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -144,7 +156,17 @@ export default function LeaderboardScreen() {
         </View>
       </View>
       
-      <ScrollView style={styles.scrollContainer}>
+      <ScrollView 
+        style={styles.scrollContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {activeTab === 'users' ? (
           users.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -153,10 +175,12 @@ export default function LeaderboardScreen() {
             </View>
           ) : (
             users.map((user, index) => (
-              <View key={user.id} style={[
+              <TouchableOpacity key={user.id} style={[
                 styles.userCard,
                 index < 3 && styles.topThreeCard
-              ]}>
+              ]}
+              onPress={() => navigation.navigate('Profile', { userId: user.id })}
+              >
                 <View style={styles.rankContainer}>
                   <Text style={[
                     styles.rank,
@@ -188,7 +212,7 @@ export default function LeaderboardScreen() {
                   <Text style={styles.spotCount}>{user.spots_owned}</Text>
                   <Text style={styles.spotLabel}>spots</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           )
         ) : (

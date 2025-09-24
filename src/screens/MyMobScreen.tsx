@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Image, RefreshControl } from 'react-native';
 import { supabase } from '../../supabase';
 import { colors } from '../constants/colors';
 
@@ -22,10 +22,11 @@ type MobMember = {
   };
 };
 
-export default function MyMobScreen() {
+export default function MyMobScreen({ navigation }: any) {
   const [currentMob, setCurrentMob] = useState<Mob | null>(null);
   const [mobMembers, setMobMembers] = useState<MobMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showJoinForm, setShowJoinForm] = useState(false);
   
@@ -237,6 +238,17 @@ export default function MyMobScreen() {
     );
   }
 
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await loadUserMob();
+    } catch (e: any) {
+      console.error('Refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function getAvatarUrl(avatarPath?: string) {
     if (!avatarPath) return null;
     return supabase.storage.from('spots-photos').getPublicUrl(avatarPath).data.publicUrl;
@@ -263,7 +275,17 @@ export default function MyMobScreen() {
           <Text style={styles.subtitle}>Join forces to dominate spots</Text>
         </View>
         
-        <ScrollView style={styles.scrollContainer}>
+        <ScrollView 
+          style={styles.scrollContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>You're not in a mob yet!</Text>
             <Text style={styles.sectionText}>
@@ -353,7 +375,17 @@ export default function MyMobScreen() {
         <Text style={styles.subtitle}>Invite Code: {currentMob.invite_code}</Text>
       </View>
       
-      <ScrollView style={styles.scrollContainer}>
+      <ScrollView 
+        style={styles.scrollContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {/* Mob Stats */}
         <View style={styles.section}>
           <View style={styles.statsContainer}>
@@ -372,7 +404,9 @@ export default function MyMobScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Members</Text>
           {mobMembers.map((member) => (
-            <View key={member.id} style={styles.memberCard}>
+            <TouchableOpacity key={member.id} style={styles.memberCard}
+              onPress={() => navigation.navigate('Profile', { userId: member.user_id })}
+            >
               <View style={styles.memberAvatar}>
                 {member.profiles?.avatar_url ? (
                   <Image 
@@ -394,7 +428,7 @@ export default function MyMobScreen() {
                   {member.profiles?.display_name || 'User'}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 

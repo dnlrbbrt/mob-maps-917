@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, TextInput, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, TextInput, ScrollView, RefreshControl } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
@@ -13,20 +13,26 @@ type Profile = {
   avatar_url?: string;
 };
 
-export default function ProfileScreen({ navigation }: any) {
+export default function ProfileScreen({ route, navigation }: any) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [spotsOwned, setSpotsOwned] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isOwnProfile, setIsOwnProfile] = useState(true);
+  const [userMob, setUserMob] = useState<{ name: string; id: string } | null>(null);
 
   useEffect(() => {
+    const userId = route.params?.userId;
+    setIsOwnProfile(!userId);
     loadProfile();
     loadSpotsOwned();
+    loadUserMob();
     checkAdminStatus();
-  }, []);
+  }, [route.params?.userId]);
 
   async function checkAdminStatus() {
     try {
@@ -41,18 +47,23 @@ export default function ProfileScreen({ navigation }: any) {
 
   async function loadProfile() {
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) {
-        console.log('No authenticated user found');
+      const targetUserId = route.params?.userId;
+      const { data: currentUserData } = await supabase.auth.getUser();
+
+      // If viewing another user's profile, don't require authentication for viewing
+      const userId = targetUserId || currentUserData?.user?.id;
+
+      if (!userId) {
+        console.log('No user ID found');
         return;
       }
 
-      console.log('Loading profile for user:', userData.user.id);
+      console.log('Loading profile for user:', userId);
 
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', userData.user.id)
+        .eq('id', userId)
         .single();
 
       if (error && error.code !== 'PGRST116') { // PGRST116 = not found
@@ -65,18 +76,18 @@ export default function ProfileScreen({ navigation }: any) {
         setProfile(profile);
         setUsername(profile.username || '');
         setDisplayName(profile.display_name || '');
-      } else {
-        // Create profile if doesn't exist
+      } else if (!targetUserId && currentUserData?.user) {
+        // Only create profile if we're viewing our own profile and it doesn't exist
         console.log('Profile not found, creating new profile...');
         const newProfile = {
-          id: userData.user.id,
-          username: userData.user.email?.split('@')[0] || 'user',
-          display_name: userData.user.email?.split('@')[0] || 'User',
+          id: currentUserData.user.id,
+          username: currentUserData.user.email?.split('@')[0] || 'user',
+          display_name: currentUserData.user.email?.split('@')[0] || 'User',
           avatar_url: null
         };
-        
+
         console.log('Inserting new profile:', newProfile);
-        
+
         const { data, error: createError } = await supabase
           .from('profiles')
           .upsert(newProfile, { onConflict: 'id' })
@@ -95,6 +106,10 @@ export default function ProfileScreen({ navigation }: any) {
           setUsername(data.username || '');
           setDisplayName(data.display_name || '');
         }
+      } else if (targetUserId) {
+        // If viewing another user's profile and they don't have one, just show empty state
+        console.log('Viewing profile for user without profile data');
+        setProfile(null);
       }
     } catch (e: any) {
       console.error('loadProfile error:', e);
@@ -104,13 +119,16 @@ export default function ProfileScreen({ navigation }: any) {
 
   async function loadSpotsOwned() {
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) return;
+      const targetUserId = route.params?.userId;
+      const { data: currentUserData } = await supabase.auth.getUser();
+      const userId = targetUserId || currentUserData?.user?.id;
+
+      if (!userId) return;
 
       const { data, error } = await supabase
         .from('spots')
         .select('id')
-        .eq('owner_user_id', userData.user.id);
+        .eq('owner_user_id', userId);
 
       if (!error && data) {
         setSpotsOwned(data.length);
@@ -120,25 +138,60 @@ export default function ProfileScreen({ navigation }: any) {
     }
   }
 
+  async function loadUserMob() {
+    try {
+      const targetUserId = route.params?.userId;
+      const { data: currentUserData } = await supabase.auth.getUser();
+      const userId = targetUserId || currentUserData?.user?.id;
+
+      if (!userId) return;
+
+      const { data } = await supabase
+        .from('mob_members')
+        .select(`
+          mobs:mob_id (
+            id,
+            name
+          )
+        `)
+        .eq('user_id', userId)
+        .single();
+
+      if (data?.mobs) {
+        setUserMob(data.mobs);
+      } else {
+        setUserMob(null);
+      }
+    } catch (e: any) {
+      console.error('loadUserMob error:', e);
+      setUserMob(null);
+    }
+  }
+
   async function updateProfile() {
     if (!profile || !username.trim()) {
       Alert.alert('Error', 'Username is required');
       return;
     }
 
+    if (!isOwnProfile) {
+      Alert.alert('Error', 'You can only edit your own profile');
+      return;
+    }
+
     setLoading(true);
     try {
       console.log('Updating profile for user:', profile.id);
-      
+
       // Check if user is authenticated
       const { data: userData } = await supabase.auth.getUser();
       if (!userData?.user) {
         throw new Error('User not authenticated');
       }
-      
+
       console.log('Authenticated user ID:', userData.user.id);
       console.log('Profile ID:', profile.id);
-      
+
       if (userData.user.id !== profile.id) {
         throw new Error('User ID mismatch');
       }
@@ -173,6 +226,11 @@ export default function ProfileScreen({ navigation }: any) {
   }
 
   async function pickProfileImage() {
+    if (!isOwnProfile) {
+      Alert.alert('Error', 'You can only edit your own profile picture');
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -224,6 +282,21 @@ export default function ProfileScreen({ navigation }: any) {
     }
   }
 
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadProfile(),
+        loadSpotsOwned(),
+        loadUserMob()
+      ]);
+    } catch (e: any) {
+      console.error('Refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function getAvatarUrl() {
     if (!profile?.avatar_url) return null;
     return supabase.storage.from('spots-photos').getPublicUrl(profile.avatar_url).data.publicUrl;
@@ -242,7 +315,17 @@ export default function ProfileScreen({ navigation }: any) {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       <View style={styles.header}>
         <TouchableOpacity onPress={navigation.goBack} style={styles.backButton}>
           <Text style={styles.backText}>← Back</Text>
@@ -304,6 +387,12 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.statNumber}>{spotsOwned}</Text>
             <Text style={styles.statLabel}>Spots Owned</Text>
           </View>
+          {userMob && (
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{userMob.name}</Text>
+              <Text style={styles.statLabel}>Mob</Text>
+            </View>
+          )}
         </View>
 
         {/* Admin Button */}
@@ -325,31 +414,33 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={styles.buttonText}>🔍 Run Database Diagnostics</Text>
         </TouchableOpacity>
 
-        {/* Edit Button */}
-        {editing ? (
-          <View style={styles.buttonRow}>
-            <TouchableOpacity 
-              style={[styles.button, styles.saveButton]} 
-              onPress={updateProfile}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>{loading ? 'Saving...' : 'Save Changes'}</Text>
+        {/* Edit Button - Only show for own profile */}
+        {isOwnProfile && (
+          editing ? (
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.button, styles.saveButton]}
+                onPress={updateProfile}
+                disabled={loading}
+              >
+                <Text style={styles.buttonText}>{loading ? 'Saving...' : 'Save Changes'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, styles.cancelButton]}
+                onPress={() => {
+                  setEditing(false);
+                  setUsername(profile.username || '');
+                  setDisplayName(profile.display_name || '');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={[styles.button, styles.editButton]} onPress={() => setEditing(true)}>
+              <Text style={styles.buttonText}>Edit Profile</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.button, styles.cancelButton]} 
-              onPress={() => {
-                setEditing(false);
-                setUsername(profile.username || '');
-                setDisplayName(profile.display_name || '');
-              }}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity style={[styles.button, styles.editButton]} onPress={() => setEditing(true)}>
-            <Text style={styles.buttonText}>Edit Profile</Text>
-          </TouchableOpacity>
+          )
         )}
       </View>
     </ScrollView>
