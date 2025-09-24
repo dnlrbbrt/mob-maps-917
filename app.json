@@ -35,18 +35,33 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"
       ]
     },
     "extra": {
       "SUPABASE_URL": "https://gcyyeahtcdevelkugysv.supabase.co",
-      "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjeXllYWh0Y2RldmVsa3VneXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxNjI2MDcsImV4cCI6MjA3MzczODYwN30.I6XJBp0WWYUtQ29sNITZ3PjuSM7k6EQdhQ3i-b3S8EI"
+      "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjeXllYWh0Y2RldmVsa3VneXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxNjI2MDcsImV4cCI6MjA3MzczODYwN30.I6XJBp0WWYUtQ29sNITZ3PjuSM7k6EQdhQ3i-b3S8EI",
+      "eas": {
+        "projectId": "cb153f2b-345b-48e9-ac7f-ddd85ac73e89"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/cb153f2b-345b-48e9-ac7f-ddd85ac73e89"
+    }
   }
 }

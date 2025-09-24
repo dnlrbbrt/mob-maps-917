@@ -118,11 +118,11 @@ export default function SpotScreen({ route, navigation }: any) {
         console.log('Creating new profile...');
         const { data: newProfile, error: profileCreateError } = await supabase
           .from('profiles')
-          .insert([{
+          .upsert({
             id: userData.user.id,
             username: userData.user.email?.split('@')[0] || 'user',
             display_name: userData.user.email?.split('@')[0] || 'User'
-          }])
+          }, { onConflict: 'id' })
           .select('*');
 
         console.log('Profile creation result:', newProfile, profileCreateError);
@@ -279,6 +279,39 @@ export default function SpotScreen({ route, navigation }: any) {
     }
   }
 
+  async function flagSpot(reason: string = 'inappropriate') {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) throw new Error('Not authenticated');
+
+      // Check if already flagged
+      const { data: existingFlag } = await supabase
+        .from('flags')
+        .select('*')
+        .eq('spot_id', spot.id)
+        .eq('user_id', userData.user.id)
+        .single();
+
+      if (existingFlag) {
+        Alert.alert('Already reported', 'You have already reported this spot.');
+        return;
+      }
+
+      // Add flag
+      const { error } = await supabase.from('flags').insert([{
+        spot_id: spot.id,
+        user_id: userData.user.id,
+        reason: reason
+      }]);
+
+      if (error) throw error;
+
+      Alert.alert('Reported', 'Spot has been reported for review. Thank you for helping keep our community safe.');
+    } catch (e: any) {
+      Alert.alert('Report failed', e.message);
+    }
+  }
+
   async function addSurveillance() {
     if (!trickName || !videoPart) return Alert.alert('Missing info', 'Please enter both trick and video part');
     
@@ -332,7 +365,23 @@ export default function SpotScreen({ route, navigation }: any) {
         {/* Spot Photo */}
         <View style={styles.spotPhotoSection}>
           {spot.photo_path && getSpotImageUrl() ? (
-            <Image source={{ uri: getSpotImageUrl()! }} style={styles.spotPhoto} />
+            <View style={styles.spotPhotoContainer}>
+              <Image source={{ uri: getSpotImageUrl()! }} style={styles.spotPhoto} />
+              <TouchableOpacity style={styles.spotFlagButton} onPress={() => {
+                Alert.alert(
+                  'Report Spot',
+                  'Why are you reporting this spot?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Inappropriate Content', onPress: () => flagSpot('inappropriate') },
+                    { text: 'Not a Real Spot', onPress: () => flagSpot('not_a_spot') },
+                    { text: 'Poor Quality', onPress: () => flagSpot('poor_quality') }
+                  ]
+                );
+              }}>
+                <Text style={styles.spotFlagText}>🚩</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={styles.noPhotoPlaceholder}>
               <Text style={styles.noPhotoText}>No photo available</Text>
@@ -497,7 +546,27 @@ const styles = StyleSheet.create({
   
   // Spot photo section
   spotPhotoSection: { padding: 16 },
+  spotPhotoContainer: { position: 'relative', width: '100%' },
   spotPhoto: { width: '100%', height: 200, borderRadius: 12 },
+  spotFlagButton: { 
+    position: 'absolute', 
+    top: 8, 
+    right: 8, 
+    backgroundColor: colors.error, 
+    paddingHorizontal: 8, 
+    paddingVertical: 6, 
+    borderRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5
+  },
+  spotFlagText: { 
+    fontSize: 12, 
+    color: 'white',
+    fontWeight: 'bold'
+  },
   noPhotoPlaceholder: { width: '100%', height: 200, backgroundColor: colors.surface, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   noPhotoText: { color: colors.textSecondary, fontSize: 16 },
   

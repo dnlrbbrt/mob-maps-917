@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
 import { colors } from '../constants/colors';
+import { runDatabaseDiagnostics } from '../utils/diagnostics';
 
 type Profile = {
   id: string;
@@ -41,7 +42,12 @@ export default function ProfileScreen({ navigation }: any) {
   async function loadProfile() {
     try {
       const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) return;
+      if (!userData?.user) {
+        console.log('No authenticated user found');
+        return;
+      }
+
+      console.log('Loading profile for user:', userData.user.id);
 
       const { data: profile, error } = await supabase
         .from('profiles')
@@ -55,11 +61,13 @@ export default function ProfileScreen({ navigation }: any) {
       }
 
       if (profile) {
+        console.log('Profile found:', profile);
         setProfile(profile);
         setUsername(profile.username || '');
         setDisplayName(profile.display_name || '');
       } else {
         // Create profile if doesn't exist
+        console.log('Profile not found, creating new profile...');
         const newProfile = {
           id: userData.user.id,
           username: userData.user.email?.split('@')[0] || 'user',
@@ -67,13 +75,22 @@ export default function ProfileScreen({ navigation }: any) {
           avatar_url: null
         };
         
+        console.log('Inserting new profile:', newProfile);
+        
         const { data, error: createError } = await supabase
           .from('profiles')
-          .insert([newProfile])
+          .upsert(newProfile, { onConflict: 'id' })
           .select('*')
           .single();
 
-        if (!createError && data) {
+        if (createError) {
+          console.error('Profile creation error:', createError);
+          Alert.alert('Database Error', `Failed to create user profile: ${createError.code || ''} ${createError.message || ''}`);
+          return;
+        }
+
+        if (data) {
+          console.log('Profile created successfully:', data);
           setProfile(data);
           setUsername(data.username || '');
           setDisplayName(data.display_name || '');
@@ -81,6 +98,7 @@ export default function ProfileScreen({ navigation }: any) {
       }
     } catch (e: any) {
       console.error('loadProfile error:', e);
+      Alert.alert('Database Error', `Failed to load user profile: ${e.message || 'Unknown error'}`);
     }
   }
 
@@ -110,6 +128,21 @@ export default function ProfileScreen({ navigation }: any) {
 
     setLoading(true);
     try {
+      console.log('Updating profile for user:', profile.id);
+      
+      // Check if user is authenticated
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) {
+        throw new Error('User not authenticated');
+      }
+      
+      console.log('Authenticated user ID:', userData.user.id);
+      console.log('Profile ID:', profile.id);
+      
+      if (userData.user.id !== profile.id) {
+        throw new Error('User ID mismatch');
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -118,7 +151,10 @@ export default function ProfileScreen({ navigation }: any) {
         })
         .eq('id', profile.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase update error:', error);
+        throw error;
+      }
 
       setProfile(prev => prev ? {
         ...prev,
@@ -130,7 +166,7 @@ export default function ProfileScreen({ navigation }: any) {
       Alert.alert('Success', 'Profile updated!');
     } catch (e: any) {
       console.error('updateProfile error:', e);
-      Alert.alert('Error', 'Failed to update profile: ' + e.message);
+      Alert.alert('Database Error', `Failed to update user profile. ${e.code || ''} ${e.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -165,6 +201,24 @@ export default function ProfileScreen({ navigation }: any) {
     } catch (e: any) {
       console.error('pickProfileImage error:', e);
       Alert.alert('Error', 'Failed to update profile picture: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runDiagnostics() {
+    setLoading(true);
+    try {
+      const result = await runDatabaseDiagnostics();
+      if (result.success) {
+        Alert.alert('✅ Diagnostics Passed', result.message);
+        // Reload profile after successful diagnostics
+        await loadProfile();
+      } else {
+        Alert.alert('❌ Diagnostics Failed', result.error);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', 'Diagnostics failed: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -262,6 +316,15 @@ export default function ProfileScreen({ navigation }: any) {
           </TouchableOpacity>
         )}
 
+        {/* Database Diagnostics Button */}
+        <TouchableOpacity 
+          style={[styles.button, styles.diagnosticsButton]} 
+          onPress={runDiagnostics}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>🔍 Run Database Diagnostics</Text>
+        </TouchableOpacity>
+
         {/* Edit Button */}
         {editing ? (
           <View style={styles.buttonRow}>
@@ -323,6 +386,7 @@ const styles = StyleSheet.create({
   button: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
   editButton: { backgroundColor: colors.primary, width: '100%' },
   adminButton: { backgroundColor: colors.error, width: '100%' },
+  diagnosticsButton: { backgroundColor: '#F59E0B', width: '100%' },
   saveButton: { backgroundColor: colors.success },
   cancelButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   buttonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },

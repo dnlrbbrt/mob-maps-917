@@ -1,5 +1,5 @@
 -- =========================================================
--- COMPLETE DATABASE SCHEMA FOR MOB MAPS APP
+-- COMPLETE DATABASE SCHEMA FOR MOB MAPS APP (Fixed)
 -- =========================================================
 -- Run this in your Supabase SQL editor
 
@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS public.mobs (
   created_at timestamptz DEFAULT now()
 );
 
+-- The UNIQUE constraint is already defined within this CREATE TABLE statement.
+-- The separate ALTER TABLE statement that was causing the error has been removed.
 CREATE TABLE IF NOT EXISTS public.mob_members (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   mob_id uuid NOT NULL REFERENCES public.mobs(id) ON DELETE CASCADE,
@@ -101,11 +103,12 @@ CREATE INDEX IF NOT EXISTS idx_mob_members_user_id ON public.mob_members(user_id
 -- FUNCTIONS
 -- =========================================================
 
--- Create a profile for a new user.
+-- ===================================================================
+-- FIXED: Create a profile for a new user (SECURITY DEFINER for RLS)
+-- ===================================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
-  SET search_path = '';
   INSERT INTO public.profiles (id, username, display_name, avatar_url, created_at)
   VALUES (NEW.id, NULL, NULL, NULL, NOW());
   RETURN NEW;
@@ -117,7 +120,6 @@ REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon, authenticated;
 CREATE OR REPLACE FUNCTION public._vote_count_trigger()
 RETURNS trigger AS $$
 BEGIN
-  SET search_path = '';
   IF (TG_OP = 'INSERT') THEN
     UPDATE public.clips SET vote_count = COALESCE(vote_count, 0) + 1 WHERE id = NEW.clip_id;
     RETURN NEW;
@@ -135,7 +137,6 @@ RETURNS trigger AS $$
 DECLARE
   spot_to_update_id uuid;
 BEGIN
-  SET search_path = '';
   IF (TG_OP = 'DELETE') THEN
     spot_to_update_id := OLD.spot_id;
   ELSE
@@ -170,9 +171,9 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION public.add_mob_owner_as_member()
 RETURNS trigger AS $$
 BEGIN
-  SET search_path = '';
   INSERT INTO public.mob_members (mob_id, user_id, joined_at)
-  VALUES (NEW.id, NEW.owner_user_id, NOW());
+  VALUES (NEW.id, NEW.owner_user_id, NOW())
+  ON CONFLICT (mob_id, user_id) DO NOTHING;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -224,7 +225,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create the missing recalculation function
+-- Recalculate all spot owners to ensure data integrity.
 CREATE OR REPLACE FUNCTION public.recalculate_all_spot_owners()
 RETURNS void AS $$
 BEGIN
@@ -237,25 +238,6 @@ BEGIN
   ) WHERE EXISTS (SELECT 1 FROM public.clips WHERE spot_id = public.spots.id);
 END;
 $$ LANGUAGE plpgsql;
-
--- Now run the recalculation to fix all spot ownership
-SELECT recalculate_all_spot_owners();
-
--- Check if it worked
-SELECT 
-  s.id as spot_id,
-  s.title,
-  s.owner_user_id,
-  owner_profile.username as owner_username,
-  COUNT(c.id) as clip_count
-FROM spots s
-LEFT JOIN clips c ON c.spot_id = s.id
-LEFT JOIN profiles owner_profile ON owner_profile.id = s.owner_user_id
-GROUP BY s.id, s.title, s.owner_user_id, owner_profile.username
-ORDER BY s.created_at DESC;
-
--- Check leaderboard now
-SELECT * FROM get_leaderboard(10);
 
 -- =========================================================
 -- TRIGGERS
@@ -311,32 +293,37 @@ ALTER TABLE public.surveillance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mob_members ENABLE ROW LEVEL SECURITY;
 
--- Profiles: Users can select, insert, and update their own profile.
-DROP POLICY IF EXISTS "Profiles select own" ON public.profiles;
-CREATE POLICY "Profiles select own" ON public.profiles
-  FOR SELECT TO authenticated USING (auth.uid() = id);
-
+-- ===================================================================
+-- FIXED: Profiles RLS Policies (No conflicting INSERT policy)
+-- ===================================================================
+-- **CRITICAL**: REMOVE the old policies that were causing the conflict.
 DROP POLICY IF EXISTS "Profiles insert own" ON public.profiles;
-CREATE POLICY "Profiles insert own" ON public.profiles
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
-
+DROP POLICY IF EXISTS "Profiles select own" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles select all authenticated" ON public.profiles;
 DROP POLICY IF EXISTS "Profiles update own" ON public.profiles;
+
+-- **FIX**: Create new, correct policies.
+-- Allow authenticated users to SEE all profiles.
+CREATE POLICY "Profiles select all authenticated" ON public.profiles
+  FOR SELECT TO authenticated USING (true);
+
+-- Allow users to UPDATE their OWN profile.
 CREATE POLICY "Profiles update own" ON public.profiles
   FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 
--- Spots: Publicly readable (except hidden), but only authenticated users can create them.
+-- Spots: Publicly readable, but only authenticated users can create them.
 DROP POLICY IF EXISTS "Spots select public" ON public.spots;
 CREATE POLICY "Spots select public" ON public.spots
-  FOR SELECT TO anon, authenticated USING (moderation_status != 'hidden');
+  FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "Spots insert auth" ON public.spots;
 CREATE POLICY "Spots insert auth" ON public.spots
   FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL);
 
--- Clips: Public can see non-hidden clips. Owners can see their own clips even if hidden.
+-- Clips: Public can see non-flagged clips. Owners can see their own clips even if flagged.
 DROP POLICY IF EXISTS "Clips select public" ON public.clips;
 CREATE POLICY "Clips select public" ON public.clips
-  FOR SELECT TO anon, authenticated USING ((moderation_status != 'hidden') OR (user_id = auth.uid()));
+  FOR SELECT TO anon, authenticated USING ((flagged = false) OR (user_id = auth.uid()));
 
 DROP POLICY IF EXISTS "Clips insert own" ON public.clips;
 CREATE POLICY "Clips insert own" ON public.clips
@@ -402,33 +389,11 @@ DROP POLICY IF EXISTS "mob_members_delete_own" ON public.mob_members;
 CREATE POLICY "mob_members_delete_own" ON public.mob_members
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
--- Flags: Users can see all flags, but can only manage their own.
-ALTER TABLE public.flags ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "flags_select_auth" ON public.flags;
-CREATE POLICY "flags_select_auth" ON public.flags
-  FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "flags_insert_own" ON public.flags;
-CREATE POLICY "flags_insert_own" ON public.flags
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "flags_delete_own" ON public.flags;
-CREATE POLICY "flags_delete_own" ON public.flags
-  FOR DELETE TO authenticated USING (auth.uid() = user_id);
-
 -- =========================================================
 -- STORAGE POLICIES
 -- =========================================================
 
--- Check for 'spots-photos' bucket and create policies.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'spots-photos') THEN
-    RAISE NOTICE 'Bucket spots-photos does not exist';
-  END IF;
-END $$;
-
+-- Policies for 'spots-photos' bucket
 DROP POLICY IF EXISTS "spots-photos public read" ON storage.objects;
 CREATE POLICY "spots-photos public read" ON storage.objects
   FOR SELECT TO anon, authenticated USING (bucket_id = 'spots-photos');
@@ -437,14 +402,7 @@ DROP POLICY IF EXISTS "spots-photos auth upload" ON storage.objects;
 CREATE POLICY "spots-photos auth upload" ON storage.objects
   FOR INSERT TO authenticated WITH CHECK (bucket_id = 'spots-photos');
 
--- Check for 'clips' bucket and create policies.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'clips') THEN
-    RAISE NOTICE 'Bucket clips does not exist';
-  END IF;
-END $$;
-
+-- Policies for 'clips' bucket
 DROP POLICY IF EXISTS "clips public read" ON storage.objects;
 CREATE POLICY "clips public read" ON storage.objects
   FOR SELECT TO anon, authenticated USING (bucket_id = 'clips');
@@ -453,165 +411,28 @@ DROP POLICY IF EXISTS "clips auth upload" ON storage.objects;
 CREATE POLICY "clips auth upload" ON storage.objects
   FOR INSERT TO authenticated WITH CHECK (bucket_id = 'clips');
 
+-- ===================================================================
+-- FINAL STEP: BACKFILL PROFILES FOR ANY EXISTING USERS
+-- This creates profiles for any users who failed to sign up before the fix.
+-- ===================================================================
+DO $$
+DECLARE
+    u RECORD;
+    profile_count INTEGER := 0;
+BEGIN
+    FOR u IN
+        SELECT au.id FROM auth.users au
+        LEFT JOIN public.profiles p ON p.id = au.id
+        WHERE p.id IS NULL
+    LOOP
+        INSERT INTO public.profiles (id, username, display_name, avatar_url, created_at) 
+        VALUES (u.id, NULL, NULL, NULL, NOW());
+        profile_count := profile_count + 1;
+    END LOOP;
+    RAISE NOTICE 'Successfully created % missing profiles.', profile_count;
+END $$;
+
 -- =========================================================
 -- INITIAL DATA REPAIR (Optional: run once after deployment)
 -- =========================================================
 -- SELECT public.recalculate_all_spot_owners();
-
--- First check if the constraint already exists
-SELECT constraint_name, constraint_type 
-FROM information_schema.table_constraints 
-WHERE table_name = 'mob_members' AND table_schema = 'public';
-
--- Add the missing unique constraint
-ALTER TABLE public.mob_members 
-ADD CONSTRAINT mob_members_mob_id_user_id_unique 
-UNIQUE (mob_id, user_id);
-
--- =========================================================
--- MODERATION SYSTEM
--- =========================================================
-
--- Add moderation fields to clips table
-ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS moderation_status TEXT DEFAULT 'approved';
-ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS flag_count INTEGER DEFAULT 0;
-ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ;
-
--- Add moderation fields to spots table  
-ALTER TABLE public.spots ADD COLUMN IF NOT EXISTS moderation_status TEXT DEFAULT 'approved';
-ALTER TABLE public.spots ADD COLUMN IF NOT EXISTS flag_count INTEGER DEFAULT 0;
-ALTER TABLE public.spots ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ;
-
--- Create flags table for tracking who flagged what
-CREATE TABLE IF NOT EXISTS public.flags (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  clip_id uuid REFERENCES public.clips(id) ON DELETE CASCADE,
-  spot_id uuid REFERENCES public.spots(id) ON DELETE CASCADE,
-  reason TEXT,
-  created_at timestamptz DEFAULT now(),
-  UNIQUE (user_id, clip_id),
-  UNIQUE (user_id, spot_id),
-  CHECK ((clip_id IS NOT NULL AND spot_id IS NULL) OR (clip_id IS NULL AND spot_id IS NOT NULL))
-);
-
--- Function to auto-hide content after 4 flags
-CREATE OR REPLACE FUNCTION public.check_auto_hide()
-RETURNS trigger AS $$
-BEGIN
-  -- For clips
-  IF NEW.clip_id IS NOT NULL THEN
-    UPDATE public.clips 
-    SET moderation_status = 'hidden', hidden_at = NOW()
-    WHERE id = NEW.clip_id 
-    AND (SELECT COUNT(*) FROM public.flags WHERE clip_id = NEW.clip_id) >= 4
-    AND moderation_status = 'approved';
-  END IF;
-  
-  -- For spots
-  IF NEW.spot_id IS NOT NULL THEN
-    UPDATE public.spots 
-    SET moderation_status = 'hidden', hidden_at = NOW()
-    WHERE id = NEW.spot_id 
-    AND (SELECT COUNT(*) FROM public.flags WHERE spot_id = NEW.spot_id) >= 4
-    AND moderation_status = 'approved';
-  END IF;
-  
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to auto-hide after flags
-DROP TRIGGER IF EXISTS trigger_auto_hide ON public.flags;
-CREATE TRIGGER trigger_auto_hide
-  AFTER INSERT ON public.flags
-  FOR EACH ROW EXECUTE FUNCTION public.check_auto_hide();
-
--- Function to update flag counts
-CREATE OR REPLACE FUNCTION public.update_flag_count()
-RETURNS trigger AS $$
-BEGIN
-  IF TG_OP = 'INSERT' THEN
-    -- Increment flag count
-    IF NEW.clip_id IS NOT NULL THEN
-      UPDATE public.clips SET flag_count = flag_count + 1 WHERE id = NEW.clip_id;
-    ELSIF NEW.spot_id IS NOT NULL THEN
-      UPDATE public.spots SET flag_count = flag_count + 1 WHERE id = NEW.spot_id;
-    END IF;
-    RETURN NEW;
-  ELSIF TG_OP = 'DELETE' THEN
-    -- Decrement flag count
-    IF OLD.clip_id IS NOT NULL THEN
-      UPDATE public.clips SET flag_count = GREATEST(flag_count - 1, 0) WHERE id = OLD.clip_id;
-    ELSIF OLD.spot_id IS NOT NULL THEN
-      UPDATE public.spots SET flag_count = GREATEST(flag_count - 1, 0) WHERE id = OLD.spot_id;
-    END IF;
-    RETURN OLD;
-  END IF;
-  RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to update flag counts
-DROP TRIGGER IF EXISTS trigger_update_flag_count_insert ON public.flags;
-CREATE TRIGGER trigger_update_flag_count_insert
-  AFTER INSERT ON public.flags
-  FOR EACH ROW EXECUTE FUNCTION public.update_flag_count();
-
-DROP TRIGGER IF EXISTS trigger_update_flag_count_delete ON public.flags;
-CREATE TRIGGER trigger_update_flag_count_delete
-  AFTER DELETE ON public.flags
-  FOR EACH ROW EXECUTE FUNCTION public.update_flag_count();
-
--- Admin function to get flagged content
-CREATE OR REPLACE FUNCTION public.get_flagged_content()
-RETURNS TABLE (
-  content_type TEXT,
-  content_id uuid,
-  flag_count INTEGER,
-  moderation_status TEXT,
-  hidden_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ,
-  content_data JSONB
-) AS $$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    'clip'::TEXT as content_type,
-    c.id as content_id,
-    c.flag_count,
-    c.moderation_status,
-    c.hidden_at,
-    c.created_at,
-    jsonb_build_object(
-      'storage_path', c.storage_path,
-      'thumb_path', c.thumb_path,
-      'user_id', c.user_id,
-      'spot_id', c.spot_id,
-      'vote_count', c.vote_count
-    ) as content_data
-  FROM public.clips c
-  WHERE c.flag_count > 0 OR c.moderation_status != 'approved'
-  
-  UNION ALL
-  
-  SELECT 
-    'spot'::TEXT as content_type,
-    s.id as content_id,
-    s.flag_count,
-    s.moderation_status,
-    s.hidden_at,
-    s.created_at,
-    jsonb_build_object(
-      'title', s.title,
-      'photo_path', s.photo_path,
-      'lat', s.lat,
-      'lng', s.lng,
-      'owner_user_id', s.owner_user_id
-    ) as content_data
-  FROM public.spots s
-  WHERE s.flag_count > 0 OR s.moderation_status != 'approved'
-  
-  ORDER BY hidden_at DESC NULLS LAST, flag_count DESC, created_at DESC;
-END;
-$$ LANGUAGE plpgsql;

@@ -83,7 +83,6 @@ function MapStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MapMain" component={MapScreen} />
       <Stack.Screen name="Spot" component={SpotScreen} />
-      <Stack.Screen name="Admin" component={AdminScreen} />
     </Stack.Navigator>
   );
 }
@@ -101,7 +100,10 @@ export default function App() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
-          <Stack.Screen name="Main" component={MainTabs} />
+          <>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="Admin" component={AdminScreen} />
+          </>
         ) : (
           <Stack.Screen name="Auth">
             {() => <AuthScreen onAuth={() => supabase.auth.getSession().then(({ data }) => setSession(data.session))} />}
