@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput, Modal, RefreshControl } from 'react-native';
+import PhotoGallery from '../components/PhotoGallery';
 // Camera removed - only using library picker
 import { Video, ResizeMode } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -26,6 +27,7 @@ type Clip = {
 export default function SpotScreen({ route, navigation }: any) {
   const { spot } = route.params;
   const [clips, setClips] = useState<Clip[]>([]);
+  const [spotPhotos, setSpotPhotos] = useState<{ photo_path: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -40,6 +42,7 @@ export default function SpotScreen({ route, navigation }: any) {
   useEffect(() => {
     loadClips();
     loadSurveillance();
+    loadSpotPhotos();
   }, []);
 
   async function onRefresh() {
@@ -47,7 +50,8 @@ export default function SpotScreen({ route, navigation }: any) {
     try {
       await Promise.all([
         loadClips(),
-        loadSurveillance()
+        loadSurveillance(),
+        loadSpotPhotos()
       ]);
     } catch (e: any) {
       console.error('Refresh error:', e);
@@ -82,6 +86,45 @@ export default function SpotScreen({ route, navigation }: any) {
     } catch (error) {
       console.error('Error loading surveillance:', error);
       setSurveillance([]); // Fallback to empty array
+    }
+  }
+
+  async function loadSpotPhotos() {
+    try {
+      const { data, error } = await supabase
+        .from('spot_photos')
+        .select('photo_path')
+        .eq('spot_id', spot.id)
+        .order('display_order', { ascending: true });
+      
+      if (error) {
+        console.error('loadSpotPhotos error:', error);
+        // Fallback to single photo from spot table
+        if (spot.photo_path) {
+          setSpotPhotos([{ photo_path: spot.photo_path }]);
+        } else {
+          setSpotPhotos([]);
+        }
+      } else {
+        // If no photos in spot_photos table, fall back to spot.photo_path
+        if (!data || data.length === 0) {
+          if (spot.photo_path) {
+            setSpotPhotos([{ photo_path: spot.photo_path }]);
+          } else {
+            setSpotPhotos([]);
+          }
+        } else {
+          setSpotPhotos(data);
+        }
+      }
+    } catch (e: any) {
+      console.error('loadSpotPhotos error:', e);
+      // Fallback to single photo from spot table
+      if (spot.photo_path) {
+        setSpotPhotos([{ photo_path: spot.photo_path }]);
+      } else {
+        setSpotPhotos([]);
+      }
     }
   }
 
@@ -359,9 +402,9 @@ export default function SpotScreen({ route, navigation }: any) {
     }
   }
 
-  function getSpotImageUrl() {
-    if (!spot.photo_path) return null;
-    return supabase.storage.from('spots-photos').getPublicUrl(spot.photo_path).data.publicUrl;
+  function getSpotImageUrl(photoPath: string) {
+    if (!photoPath) return null;
+    return supabase.storage.from('spots-photos').getPublicUrl(photoPath).data.publicUrl;
   }
 
   // Show all clips with rankings
@@ -387,31 +430,26 @@ export default function SpotScreen({ route, navigation }: any) {
           />
         }
       >
-        {/* Spot Photo */}
+        {/* Spot Photos Gallery */}
         <View style={styles.spotPhotoSection}>
-          {spot.photo_path && getSpotImageUrl() ? (
-            <View style={styles.spotPhotoContainer}>
-              <Image source={{ uri: getSpotImageUrl()! }} style={styles.spotPhoto} />
-              <TouchableOpacity style={styles.spotFlagButton} onPress={() => {
-                Alert.alert(
-                  'Report Spot',
-                  'Why are you reporting this spot?',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Inappropriate Content', onPress: () => flagSpot('inappropriate') },
-                    { text: 'Not a Real Spot', onPress: () => flagSpot('not_a_spot') },
-                    { text: 'Poor Quality', onPress: () => flagSpot('poor_quality') }
-                  ]
-                );
-              }}>
-                <Text style={styles.spotFlagText}>🚩</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.noPhotoPlaceholder}>
-              <Text style={styles.noPhotoText}>No photo available</Text>
-            </View>
-          )}
+          <PhotoGallery 
+            photos={spotPhotos}
+            getImageUrl={getSpotImageUrl}
+          />
+          <TouchableOpacity style={styles.spotFlagButton} onPress={() => {
+            Alert.alert(
+              'Report Spot',
+              'Why are you reporting this spot?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Inappropriate Content', onPress: () => flagSpot('inappropriate') },
+                { text: 'Not a Real Spot', onPress: () => flagSpot('not_a_spot') },
+                { text: 'Poor Quality', onPress: () => flagSpot('poor_quality') }
+              ]
+            );
+          }}>
+            <Text style={styles.spotFlagText}>🚩</Text>
+          </TouchableOpacity>
         </View>
 
         {/* All Clips */}
@@ -570,13 +608,11 @@ const styles = StyleSheet.create({
   scrollContainer: { flex: 1 },
   
   // Spot photo section
-  spotPhotoSection: { padding: 16 },
-  spotPhotoContainer: { position: 'relative', width: '100%' },
-  spotPhoto: { width: '100%', height: 200, borderRadius: 12 },
+  spotPhotoSection: { padding: 16, position: 'relative' },
   spotFlagButton: { 
     position: 'absolute', 
-    top: 8, 
-    right: 8, 
+    top: 24, 
+    right: 24, 
     backgroundColor: colors.error, 
     paddingHorizontal: 8, 
     paddingVertical: 6, 
@@ -585,7 +621,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
-    elevation: 5
+    elevation: 5,
+    zIndex: 10
   },
   spotFlagText: { 
     fontSize: 12, 

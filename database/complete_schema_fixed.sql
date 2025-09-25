@@ -22,8 +22,19 @@ CREATE TABLE IF NOT EXISTS public.spots (
   title text,
   lat double precision NOT NULL,
   lng double precision NOT NULL,
-  photo_path text,
+  photo_path text, -- Keep for backward compatibility
   owner_user_id uuid REFERENCES public.profiles(id),
+  created_at timestamptz DEFAULT now()
+);
+
+-- =========================================================
+-- SPOT PHOTOS (Multiple photos per spot)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.spot_photos (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  spot_id uuid NOT NULL REFERENCES public.spots(id) ON DELETE CASCADE,
+  photo_path text NOT NULL,
+  display_order integer DEFAULT 0,
   created_at timestamptz DEFAULT now()
 );
 
@@ -90,6 +101,8 @@ CREATE TABLE IF NOT EXISTS public.mob_members (
 -- INDEXES
 -- =========================================================
 CREATE INDEX IF NOT EXISTS idx_spots_owner_user_id ON public.spots(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_spot_photos_spot_id ON public.spot_photos(spot_id);
+CREATE INDEX IF NOT EXISTS idx_spot_photos_display_order ON public.spot_photos(spot_id, display_order);
 CREATE INDEX IF NOT EXISTS idx_clips_spot_id ON public.clips(spot_id);
 CREATE INDEX IF NOT EXISTS idx_clips_user_id ON public.clips(user_id);
 CREATE INDEX IF NOT EXISTS idx_votes_clip_id ON public.votes(clip_id);
@@ -292,6 +305,7 @@ ALTER TABLE public.votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.surveillance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mob_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.spot_photos ENABLE ROW LEVEL SECURITY;
 
 -- ===================================================================
 -- FIXED: Profiles RLS Policies (No conflicting INSERT policy)
@@ -389,6 +403,19 @@ DROP POLICY IF EXISTS "mob_members_delete_own" ON public.mob_members;
 CREATE POLICY "mob_members_delete_own" ON public.mob_members
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
+-- Spot Photos: Publicly readable, only authenticated users can manage
+DROP POLICY IF EXISTS "spot_photos_select_public" ON public.spot_photos;
+CREATE POLICY "spot_photos_select_public" ON public.spot_photos
+  FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "spot_photos_insert_auth" ON public.spot_photos;
+CREATE POLICY "spot_photos_insert_auth" ON public.spot_photos
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "spot_photos_delete_auth" ON public.spot_photos;
+CREATE POLICY "spot_photos_delete_auth" ON public.spot_photos
+  FOR DELETE TO authenticated USING (auth.uid() IS NOT NULL);
+
 -- =========================================================
 -- STORAGE POLICIES
 -- =========================================================
@@ -455,12 +482,23 @@ SET owner_user_id = (
   LIMIT 1
 ) WHERE EXISTS (SELECT 1 FROM public.clips WHERE spot_id = public.spots.id);
 
--- Step 3: Verify the fix with diagnostic query
+-- Step 3: Migrate existing single photos to spot_photos table
+INSERT INTO public.spot_photos (spot_id, photo_path, display_order)
+SELECT id, photo_path, 0
+FROM public.spots 
+WHERE photo_path IS NOT NULL 
+AND NOT EXISTS (
+  SELECT 1 FROM public.spot_photos WHERE spot_id = spots.id
+);
+
+-- Step 4: Verify the fix with diagnostic query
 DO $$
 DECLARE
     spot_record RECORD;
     ownership_issues INTEGER := 0;
+    migrated_photos INTEGER := 0;
 BEGIN
+    -- Check ownership issues
     FOR spot_record IN
         SELECT 
             s.id as spot_id,
@@ -478,9 +516,14 @@ BEGIN
         END IF;
     END LOOP;
     
+    -- Count migrated photos
+    SELECT COUNT(*) INTO migrated_photos FROM public.spot_photos;
+    
     IF ownership_issues = 0 THEN
         RAISE NOTICE 'Spot ownership fix completed successfully. All spots have correct owners.';
     ELSE
         RAISE NOTICE 'Warning: % spots still have ownership issues after fix.', ownership_issues;
     END IF;
+    
+    RAISE NOTICE 'Photo migration completed. % photos migrated to spot_photos table.', migrated_photos;
 END $$;

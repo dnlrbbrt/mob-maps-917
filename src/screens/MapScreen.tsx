@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Modal, Image, TextInput, Button, StyleSheet, Text, Alert, TouchableOpacity } from 'react-native';
+import { View, Modal, Image, TextInput, Button, StyleSheet, Text, Alert, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
 import MapView, { MapPressEvent, Marker, Callout, Region } from 'react-native-maps';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -14,7 +14,7 @@ export default function MapScreen({ navigation }: any) {
   const [modalVisible, setModalVisible] = useState(false);
   const [coord, setCoord] = useState<Coord | null>(null);
   const [title, setTitle] = useState('');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [shouldLoadSpots, setShouldLoadSpots] = useState(false);
@@ -119,13 +119,25 @@ export default function MapScreen({ navigation }: any) {
     const c = e.nativeEvent.coordinate;
     setCoord({ latitude: c.latitude, longitude: c.longitude });
     setTitle('');
-    setPhotoUri(null);
+    setPhotoUris([]);
     setModalVisible(true);
   }
 
   async function pickImage() {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-    if (!res.canceled) setPhotoUri(res.assets[0].uri);
+    const res = await ImagePicker.launchImageLibraryAsync({ 
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 5 // Limit to 5 photos
+    });
+    if (!res.canceled && res.assets) {
+      const newUris = res.assets.map(asset => asset.uri);
+      setPhotoUris(prev => [...prev, ...newUris].slice(0, 5)); // Max 5 photos
+    }
+  }
+
+  function removePhoto(index: number) {
+    setPhotoUris(prev => prev.filter((_, i) => i !== index));
   }
 
   // Upload via FormData to avoid blob issues on some RN runtimes
@@ -134,7 +146,7 @@ export default function MapScreen({ navigation }: any) {
   }
 
   async function createSpot() {
-    if (!coord || !photoUri) return Alert.alert('Missing data', 'Please add a photo');
+    if (!coord || photoUris.length === 0) return Alert.alert('Missing data', 'Please add at least one photo');
     setLoading(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -143,17 +155,43 @@ export default function MapScreen({ navigation }: any) {
         setLoading(false);
         return;
       }
-      const fileName = `${Date.now()}.jpg`;
-      const storagePath = `spots/${fileName}`;
-      console.log('Uploading to path:', storagePath);
-      await uploadToStorage(photoUri, 'spots-photos', storagePath);
-      console.log('Upload successful, inserting spot with photo_path:', storagePath);
-      const { data, error } = await supabase.from('spots').insert([
-        { title, lat: coord.latitude, lng: coord.longitude, photo_path: storagePath }
+
+      // Upload all photos first
+      const uploadedPaths: string[] = [];
+      for (let i = 0; i < photoUris.length; i++) {
+        const fileName = `${Date.now()}_${i}.jpg`;
+        const storagePath = `spots/${fileName}`;
+        console.log('Uploading photo', i + 1, 'to path:', storagePath);
+        await uploadToStorage(photoUris[i], 'spots-photos', storagePath);
+        uploadedPaths.push(storagePath);
+      }
+
+      // Create the spot (keep first photo in photo_path for backward compatibility)
+      console.log('Creating spot with', uploadedPaths.length, 'photos');
+      const { data: spotData, error: spotError } = await supabase.from('spots').insert([
+        { title, lat: coord.latitude, lng: coord.longitude, photo_path: uploadedPaths[0] }
       ]).select('*');
-      if (error) throw error;
-      setSpots((prev) => [data![0], ...prev]);
+      
+      if (spotError) throw spotError;
+      const newSpot = spotData![0];
+
+      // Insert all photos into spot_photos table
+      const spotPhotos = uploadedPaths.map((path, index) => ({
+        spot_id: newSpot.id,
+        photo_path: path,
+        display_order: index
+      }));
+
+      const { error: photosError } = await supabase.from('spot_photos').insert(spotPhotos);
+      if (photosError) {
+        console.warn('Failed to insert spot photos:', photosError);
+        // Don't throw error - spot was created successfully
+      }
+
+      setSpots((prev) => [newSpot, ...prev]);
       setModalVisible(false);
+      setTitle('');
+      setPhotoUris([]);
     } catch (e: any) {
       console.error('createSpot error', e);
       const msg = e?.message || e?.error_description || 'Failed to create spot';
@@ -218,11 +256,35 @@ export default function MapScreen({ navigation }: any) {
         <View style={styles.modal}>
           <Text style={styles.header}>Create spot</Text>
           <TextInput placeholder="Title" value={title} onChangeText={setTitle} style={styles.input} />
-          {photoUri ? <Image source={{ uri: photoUri }} style={styles.preview} /> : null}
+          
+          {/* Photo Preview Section */}
+          {photoUris.length > 0 && (
+            <ScrollView horizontal style={styles.photoScrollView} showsHorizontalScrollIndicator={false}>
+              {photoUris.map((uri, index) => (
+                <View key={index} style={styles.photoContainer}>
+                  <Image source={{ uri }} style={styles.preview} />
+                  <TouchableOpacity style={styles.removeButton} onPress={() => removePhoto(index)}>
+                    <Text style={styles.removeButtonText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+          
+          <Text style={styles.photoCount}>{photoUris.length}/5 photos</Text>
+          
           <View style={styles.row}>
-            <Button title="Pick Photo" onPress={pickImage} />
+            <Button 
+              title={photoUris.length === 0 ? "Pick Photos" : "Add More"} 
+              onPress={pickImage} 
+              disabled={photoUris.length >= 5}
+            />
             <View style={{ width: 12 }} />
-            <Button title={loading ? '...' : 'Create'} onPress={createSpot} disabled={loading || !photoUri} />
+            <Button 
+              title={loading ? '...' : 'Create'} 
+              onPress={createSpot} 
+              disabled={loading || photoUris.length === 0} 
+            />
           </View>
           <View style={{ height: 8 }} />
           <Button title="Cancel" color="#666" onPress={() => setModalVisible(false)} />
@@ -255,11 +317,40 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16
   },
+  photoScrollView: {
+    height: 120,
+    marginBottom: 8
+  },
+  photoContainer: {
+    position: 'relative',
+    marginRight: 8
+  },
   preview: { 
-    width: '100%', 
-    height: 240, 
-    borderRadius: 8, 
-    marginBottom: 12 
+    width: 100, 
+    height: 100, 
+    borderRadius: 8
+  },
+  removeButton: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF0000',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  removeButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold'
+  },
+  photoCount: {
+    textAlign: 'center',
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 12
   },
   row: { 
     flexDirection: 'row', 
