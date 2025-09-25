@@ -166,27 +166,14 @@ export default function MapScreen({ navigation }: any) {
         uploadedPaths.push(storagePath);
       }
 
-      // Create the spot (keep first photo in photo_path for backward compatibility)
-      console.log('Creating spot with', uploadedPaths.length, 'photos');
+      // Create the spot with single photo
+      console.log('Creating spot with photo');
       const { data: spotData, error: spotError } = await supabase.from('spots').insert([
         { title, lat: coord.latitude, lng: coord.longitude, photo_path: uploadedPaths[0] }
       ]).select('*');
       
       if (spotError) throw spotError;
       const newSpot = spotData![0];
-
-      // Insert all photos into spot_photos table
-      const spotPhotos = uploadedPaths.map((path, index) => ({
-        spot_id: newSpot.id,
-        photo_path: path,
-        display_order: index
-      }));
-
-      const { error: photosError } = await supabase.from('spot_photos').insert(spotPhotos);
-      if (photosError) {
-        console.warn('Failed to insert spot photos:', photosError);
-        // Don't throw error - spot was created successfully
-      }
 
       setSpots((prev) => [newSpot, ...prev]);
       setModalVisible(false);

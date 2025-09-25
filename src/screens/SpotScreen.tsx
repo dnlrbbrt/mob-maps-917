@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput, Modal, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Dimensions, TextInput, Modal, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native';
 import PhotoGallery from '../components/PhotoGallery';
 // Camera removed - only using library picker
 import { Video, ResizeMode } from 'expo-av';
@@ -91,40 +91,15 @@ export default function SpotScreen({ route, navigation }: any) {
 
   async function loadSpotPhotos() {
     try {
-      const { data, error } = await supabase
-        .from('spot_photos')
-        .select('photo_path')
-        .eq('spot_id', spot.id)
-        .order('display_order', { ascending: true });
-      
-      if (error) {
-        console.error('loadSpotPhotos error:', error);
-        // Fallback to single photo from spot table
-        if (spot.photo_path) {
-          setSpotPhotos([{ photo_path: spot.photo_path }]);
-        } else {
-          setSpotPhotos([]);
-        }
-      } else {
-        // If no photos in spot_photos table, fall back to spot.photo_path
-        if (!data || data.length === 0) {
-          if (spot.photo_path) {
-            setSpotPhotos([{ photo_path: spot.photo_path }]);
-          } else {
-            setSpotPhotos([]);
-          }
-        } else {
-          setSpotPhotos(data);
-        }
-      }
-    } catch (e: any) {
-      console.error('loadSpotPhotos error:', e);
-      // Fallback to single photo from spot table
+      // Use single photo from spot table
       if (spot.photo_path) {
         setSpotPhotos([{ photo_path: spot.photo_path }]);
       } else {
         setSpotPhotos([]);
       }
+    } catch (e: any) {
+      console.error('loadSpotPhotos error:', e);
+      setSpotPhotos([]);
     }
   }
 
@@ -135,7 +110,7 @@ export default function SpotScreen({ route, navigation }: any) {
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 0.8,
         allowsEditing: true,
-        videoMaxDuration: 10
+        videoMaxDuration: 8
       });
       
       console.log('Library result:', result);
@@ -312,7 +287,8 @@ export default function SpotScreen({ route, navigation }: any) {
       const { data: existingFlag } = await supabase
         .from('flags')
         .select('*')
-        .eq('clip_id', clipId)
+        .eq('content_type', 'clip')
+        .eq('content_id', clipId)
         .eq('user_id', userData.user.id)
         .single();
 
@@ -323,7 +299,8 @@ export default function SpotScreen({ route, navigation }: any) {
 
       // Add flag
       const { error } = await supabase.from('flags').insert([{
-        clip_id: clipId,
+        content_type: 'clip',
+        content_id: clipId,
         user_id: userData.user.id,
         reason: reason
       }]);
@@ -346,7 +323,8 @@ export default function SpotScreen({ route, navigation }: any) {
       const { data: existingFlag } = await supabase
         .from('flags')
         .select('*')
-        .eq('spot_id', spot.id)
+        .eq('content_type', 'spot')
+        .eq('content_id', spot.id)
         .eq('user_id', userData.user.id)
         .single();
 
@@ -357,7 +335,8 @@ export default function SpotScreen({ route, navigation }: any) {
 
       // Add flag
       const { error } = await supabase.from('flags').insert([{
-        spot_id: spot.id,
+        content_type: 'spot',
+        content_id: spot.id,
         user_id: userData.user.id,
         reason: reason
       }]);
@@ -369,6 +348,43 @@ export default function SpotScreen({ route, navigation }: any) {
       Alert.alert('Report failed', e.message);
     }
   }
+
+  async function flagSurveillance(surveillanceId: string, reason: string = 'inappropriate') {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) throw new Error('Not authenticated');
+
+      // Check if already flagged
+      const { data: existingFlag } = await supabase
+        .from('flags')
+        .select('*')
+        .eq('content_type', 'surveillance')
+        .eq('content_id', surveillanceId)
+        .eq('user_id', userData.user.id)
+        .single();
+
+      if (existingFlag) {
+        Alert.alert('Already reported', 'You have already reported this surveillance entry.');
+        return;
+      }
+
+      // Add flag
+      const { error } = await supabase.from('flags').insert([{
+        content_type: 'surveillance',
+        content_id: surveillanceId,
+        user_id: userData.user.id,
+        reason: reason
+      }]);
+
+      if (error) throw error;
+
+      Alert.alert('Reported', 'Surveillance entry has been reported for review. Thank you for helping keep our community safe.');
+      loadSurveillance(); // Refresh surveillance data
+    } catch (e: any) {
+      Alert.alert('Report failed', e.message);
+    }
+  }
+
 
   async function addSurveillance() {
     if (!trickName || !videoPart) return Alert.alert('Missing info', 'Please enter both trick and video part');
@@ -411,7 +427,11 @@ export default function SpotScreen({ route, navigation }: any) {
   const rankedClips = clips;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <View style={styles.header}>
         <TouchableOpacity onPress={navigation.goBack} style={styles.backButton}>
           <Text style={styles.backText}>← Back</Text>
@@ -429,6 +449,8 @@ export default function SpotScreen({ route, navigation }: any) {
             tintColor={colors.primary}
           />
         }
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {/* Spot Photos Gallery */}
         <View style={styles.spotPhotoSection}>
@@ -481,7 +503,18 @@ export default function SpotScreen({ route, navigation }: any) {
                     <TouchableOpacity style={styles.voteButton} onPress={() => vote(clip.id)}>
                       <Text style={styles.voteText}>Vote</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.flagButton} onPress={() => flagContent(clip.id)}>
+                    <TouchableOpacity style={styles.flagButton} onPress={() => {
+                      Alert.alert(
+                        'Report Clip',
+                        'Why are you reporting this clip?',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Inappropriate Content', onPress: () => flagContent(clip.id, 'inappropriate') },
+                          { text: 'Offensive', onPress: () => flagContent(clip.id, 'offensive') },
+                          { text: 'Spam', onPress: () => flagContent(clip.id, 'spam') }
+                        ]
+                      );
+                    }}>
                       <Text style={styles.flagText}>🚩</Text>
                     </TouchableOpacity>
                   </View>
@@ -529,8 +562,29 @@ export default function SpotScreen({ route, navigation }: any) {
 
           {surveillance.map((entry) => (
             <View key={entry.id} style={styles.surveillanceEntry}>
-              <Text style={styles.trickText}>{entry.trick_name}</Text>
-              <Text style={styles.videoPartText}>{entry.video_part}</Text>
+              <View style={styles.surveillanceContent}>
+                <View style={styles.surveillanceInfo}>
+                  <Text style={styles.trickText}>{entry.trick_name}</Text>
+                  <Text style={styles.videoPartText}>{entry.video_part}</Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.surveillanceFlagButton} 
+                  onPress={() => {
+                    Alert.alert(
+                      'Report Surveillance',
+                      'Why are you reporting this surveillance entry?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Inappropriate Content', onPress: () => flagSurveillance(entry.id, 'inappropriate') },
+                        { text: 'Offensive', onPress: () => flagSurveillance(entry.id, 'offensive') },
+                        { text: 'Spam', onPress: () => flagSurveillance(entry.id, 'spam') }
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={styles.surveillanceFlagText}>🚩</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))}
         </View>
@@ -595,7 +649,7 @@ export default function SpotScreen({ route, navigation }: any) {
           )}
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -653,7 +707,7 @@ const styles = StyleSheet.create({
   voteButton: { backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
   voteText: { color: colors.text, fontWeight: 'bold', fontSize: 12 },
   flagButton: { backgroundColor: colors.error, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 },
-  flagText: { fontSize: 12 },
+  flagText: { fontSize: 12, color: 'white', fontWeight: 'bold' },
   
   // Upload section
   uploadButton: { backgroundColor: colors.error, padding: 16, borderRadius: 8, alignItems: 'center' },
@@ -674,8 +728,12 @@ const styles = StyleSheet.create({
   addButton: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
   addButtonText: { color: colors.text, fontWeight: 'bold' },
   surveillanceEntry: { backgroundColor: colors.surface, padding: 12, borderRadius: 8, marginBottom: 8 },
+  surveillanceContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  surveillanceInfo: { flex: 1 },
   trickText: { fontSize: 16, fontWeight: 'bold', marginBottom: 4, color: colors.text },
   videoPartText: { fontSize: 14, color: colors.textSecondary },
+  surveillanceFlagButton: { backgroundColor: colors.error, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 4 },
+  surveillanceFlagText: { fontSize: 10, color: 'white', fontWeight: 'bold' },
   
   // Fullscreen video modal
   videoModalContainer: { 

@@ -7,11 +7,9 @@ import { colors } from '../constants/colors';
 const { width } = Dimensions.get('window');
 
 type FlaggedContent = {
-  content_type: 'clip' | 'spot';
+  content_type: 'clip' | 'spot' | 'surveillance';
   content_id: string;
   flag_count: number;
-  moderation_status: string;
-  hidden_at: string | null;
   created_at: string;
   content_data: any;
 };
@@ -69,30 +67,19 @@ export default function AdminScreen({ navigation }: any) {
   async function moderateContent(contentType: string, contentId: string, action: 'approve' | 'delete') {
     try {
       if (action === 'approve') {
-        // Approve content (unhide and reset flags)
-        const table = contentType === 'clip' ? 'clips' : 'spots';
-        const { error: updateError } = await supabase
-          .from(table)
-          .update({ 
-            moderation_status: 'approved',
-            hidden_at: null 
-          })
-          .eq('id', contentId);
-
-        if (updateError) throw updateError;
-
-        // Delete all flags for this content
+        // Delete all flags for this content (approve it)
         const { error: flagError } = await supabase
           .from('flags')
           .delete()
-          .eq(contentType === 'clip' ? 'clip_id' : 'spot_id', contentId);
+          .eq('content_type', contentType)
+          .eq('content_id', contentId);
 
         if (flagError) throw flagError;
 
-        Alert.alert('Approved', 'Content has been approved and made visible again.');
+        Alert.alert('Approved', 'Content has been approved and flags removed.');
       } else if (action === 'delete') {
         // Delete content permanently
-        const table = contentType === 'clip' ? 'clips' : 'spots';
+        const table = contentType === 'clip' ? 'clips' : contentType === 'spot' ? 'spots' : 'surveillance';
         const { error } = await supabase
           .from(table)
           .delete()
@@ -124,10 +111,11 @@ export default function AdminScreen({ navigation }: any) {
           <View style={styles.contentInfo}>
             <Text style={styles.contentTitle}>Video Clip</Text>
             <Text style={styles.contentDetails}>Votes: {item.content_data.vote_count}</Text>
+            <Text style={styles.contentDetails}>By: @{item.content_data.profiles?.username || 'anonymous'}</Text>
           </View>
         </View>
       );
-    } else {
+    } else if (item.content_type === 'spot') {
       return (
         <View style={styles.contentPreview}>
           {item.content_data.photo_path && (
@@ -142,13 +130,23 @@ export default function AdminScreen({ navigation }: any) {
           </View>
         </View>
       );
+    } else if (item.content_type === 'surveillance') {
+      return (
+        <View style={styles.contentPreview}>
+          <View style={styles.contentInfo}>
+            <Text style={styles.contentTitle}>Surveillance Citation</Text>
+            <Text style={styles.contentDetails}>Trick: {item.content_data.trick_name}</Text>
+            <Text style={styles.contentDetails}>Video Part: {item.content_data.video_part}</Text>
+          </View>
+        </View>
+      );
     }
   }
 
   if (!isAdmin) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Checking admin access...</Text>
+        <Text style={styles.loadingText}>Checking admin access...</Text>
       </View>
     );
   }
@@ -175,10 +173,7 @@ export default function AdminScreen({ navigation }: any) {
             <View key={`${item.content_type}-${item.content_id}`} style={styles.flaggedItem}>
               <View style={styles.flaggedHeader}>
                 <Text style={styles.flagCount}>🚩 {item.flag_count} reports</Text>
-                <Text style={styles.status}>
-                  Status: {item.moderation_status}
-                  {item.hidden_at && ' (Hidden)'}
-                </Text>
+                <Text style={styles.contentType}>{item.content_type.toUpperCase()}</Text>
               </View>
 
               {getContentPreview(item)}
@@ -228,11 +223,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, 
     borderBottomColor: colors.border 
   },
-  backButton: { marginRight: 16 },
+  backButton: { paddingRight: 16 },
   backText: { fontSize: 16, color: colors.primary },
   title: { flex: 1, fontSize: 20, fontWeight: 'bold', color: colors.text },
-  refreshButton: { marginLeft: 16 },
-  refreshText: { fontSize: 20 },
+  refreshButton: { paddingLeft: 16 },
+  refreshText: { fontSize: 18 },
   scrollContainer: { flex: 1, padding: 16 },
   loadingText: { textAlign: 'center', color: colors.textSecondary, fontSize: 16, marginTop: 50 },
   noContentText: { textAlign: 'center', color: colors.textSecondary, fontSize: 16, marginTop: 50 },
@@ -252,39 +247,29 @@ const styles = StyleSheet.create({
     marginBottom: 12 
   },
   flagCount: { fontSize: 16, fontWeight: 'bold', color: colors.error },
-  status: { fontSize: 14, color: colors.textSecondary },
+  contentType: { fontSize: 12, color: colors.textSecondary, fontWeight: 'bold' },
   
   contentPreview: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  thumbnail: { width: 80, height: 60, borderRadius: 4, marginRight: 12 },
+  thumbnail: { width: 60, height: 60, borderRadius: 8, marginRight: 12 },
   contentInfo: { flex: 1 },
   contentTitle: { fontSize: 16, fontWeight: 'bold', color: colors.text, marginBottom: 4 },
-  contentDetails: { fontSize: 14, color: colors.textSecondary },
+  contentDetails: { fontSize: 14, color: colors.textSecondary, marginBottom: 2 },
   
-  actionButtons: { flexDirection: 'row', justifyContent: 'space-around' },
+  actionButtons: { flexDirection: 'row', gap: 12 },
   approveButton: { 
+    flex: 1, 
     backgroundColor: colors.success, 
-    paddingHorizontal: 24, 
     paddingVertical: 12, 
-    borderRadius: 8,
-    flex: 0.45
+    borderRadius: 8, 
+    alignItems: 'center' 
   },
-  approveText: { 
-    color: 'white', 
-    fontWeight: 'bold', 
-    textAlign: 'center',
-    fontSize: 16
-  },
+  approveText: { color: colors.text, fontWeight: 'bold' },
   deleteButton: { 
+    flex: 1, 
     backgroundColor: colors.error, 
-    paddingHorizontal: 24, 
     paddingVertical: 12, 
-    borderRadius: 8,
-    flex: 0.45
+    borderRadius: 8, 
+    alignItems: 'center' 
   },
-  deleteText: { 
-    color: 'white', 
-    fontWeight: 'bold', 
-    textAlign: 'center',
-    fontSize: 16
-  },
+  deleteText: { color: 'white', fontWeight: 'bold' }
 });

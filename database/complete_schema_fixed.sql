@@ -77,6 +77,20 @@ CREATE TABLE IF NOT EXISTS public.surveillance (
 );
 
 -- =========================================================
+-- FLAGS (Content reporting)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.flags (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  content_type text NOT NULL CHECK (content_type IN ('spot', 'clip', 'surveillance')),
+  content_id uuid NOT NULL,
+  reason text NOT NULL CHECK (reason IN ('inappropriate', 'not_a_spot', 'poor_quality', 'offensive', 'spam', 'other')),
+  description text,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (user_id, content_type, content_id)
+);
+
+-- =========================================================
 -- MOBS & MOB_MEMBERS
 -- =========================================================
 CREATE TABLE IF NOT EXISTS public.mobs (
@@ -108,6 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_clips_user_id ON public.clips(user_id);
 CREATE INDEX IF NOT EXISTS idx_votes_clip_id ON public.votes(clip_id);
 CREATE INDEX IF NOT EXISTS idx_votes_user_id ON public.votes(user_id);
 CREATE INDEX IF NOT EXISTS idx_clips_vote_count_created_at ON public.clips(vote_count DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_flags_user_id ON public.flags(user_id);
+CREATE INDEX IF NOT EXISTS idx_flags_content_type_id ON public.flags(content_type, content_id);
+CREATE INDEX IF NOT EXISTS idx_flags_created_at ON public.flags(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mobs_invite_code ON public.mobs(invite_code);
 CREATE INDEX IF NOT EXISTS idx_mob_members_mob_id ON public.mob_members(mob_id);
 CREATE INDEX IF NOT EXISTS idx_mob_members_user_id ON public.mob_members(user_id);
@@ -303,6 +320,7 @@ ALTER TABLE public.spots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.surveillance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mob_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.spot_photos ENABLE ROW LEVEL SECURITY;
@@ -416,6 +434,22 @@ DROP POLICY IF EXISTS "spot_photos_delete_auth" ON public.spot_photos;
 CREATE POLICY "spot_photos_delete_auth" ON public.spot_photos
   FOR DELETE TO authenticated USING (auth.uid() IS NOT NULL);
 
+-- Flags: Users can only see their own flags, admins can see all
+DROP POLICY IF EXISTS "flags_select_own" ON public.flags;
+CREATE POLICY "flags_select_own" ON public.flags
+  FOR SELECT TO authenticated USING (
+    auth.uid() = user_id OR 
+    auth.email() = 'dnlrbbrt@gmail.com'
+  );
+
+DROP POLICY IF EXISTS "flags_insert_auth" ON public.flags;
+CREATE POLICY "flags_insert_auth" ON public.flags
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "flags_delete_admin" ON public.flags;
+CREATE POLICY "flags_delete_admin" ON public.flags
+  FOR DELETE TO authenticated USING (auth.email() = 'dnlrbbrt@gmail.com');
+
 -- =========================================================
 -- STORAGE POLICIES
 -- =========================================================
@@ -463,6 +497,42 @@ END $$;
 -- SPOT OWNERSHIP & LEADERBOARD FIX
 -- =========================================================
 -- Fix vote count discrepancies and spot ownership issues
+
+-- Get flagged content for admin dashboard
+CREATE OR REPLACE FUNCTION public.get_flagged_content()
+RETURNS TABLE (
+  content_type text,
+  content_id uuid,
+  flag_count bigint,
+  created_at timestamptz,
+  content_data jsonb
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    f.content_type,
+    f.content_id,
+    COUNT(f.id) as flag_count,
+    MIN(f.created_at) as created_at,
+    CASE 
+      WHEN f.content_type = 'spot' THEN to_jsonb(s.*) 
+      WHEN f.content_type = 'clip' THEN to_jsonb(c.*) || jsonb_build_object('profiles', to_jsonb(p.*))
+      WHEN f.content_type = 'surveillance' THEN to_jsonb(sv.*)
+      ELSE NULL::jsonb
+    END as content_data
+  FROM public.flags f
+  LEFT JOIN public.spots s ON f.content_type = 'spot' AND f.content_id = s.id
+  LEFT JOIN public.clips c ON f.content_type = 'clip' AND f.content_id = c.id
+  LEFT JOIN public.profiles p ON c.user_id = p.id
+  LEFT JOIN public.surveillance sv ON f.content_type = 'surveillance' AND f.content_id = sv.id
+  GROUP BY f.content_type, f.content_id, s.*, c.*, p.*, sv.*
+  ORDER BY flag_count DESC, created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =========================================================
+-- MIGRATION & SETUP FIXES
+-- =========================================================
 
 -- Step 1: Fix any vote count discrepancies first
 -- Recalculate all clip vote counts based on actual votes

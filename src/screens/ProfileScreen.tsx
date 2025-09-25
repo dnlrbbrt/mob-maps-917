@@ -4,7 +4,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { uploadImageFromUri } from '../lib/upload';
 import { colors } from '../constants/colors';
-import { runDatabaseDiagnostics } from '../utils/diagnostics';
 
 type Profile = {
   id: string;
@@ -264,24 +263,6 @@ export default function ProfileScreen({ route, navigation }: any) {
     }
   }
 
-  async function runDiagnostics() {
-    setLoading(true);
-    try {
-      const result = await runDatabaseDiagnostics();
-      if (result.success) {
-        Alert.alert('✅ Diagnostics Passed', result.message);
-        // Reload profile after successful diagnostics
-        await loadProfile();
-      } else {
-        Alert.alert('❌ Diagnostics Failed', result.error);
-      }
-    } catch (e: any) {
-      Alert.alert('Error', 'Diagnostics failed: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function onRefresh() {
     setRefreshing(true);
     try {
@@ -405,15 +386,6 @@ export default function ProfileScreen({ route, navigation }: any) {
           </TouchableOpacity>
         )}
 
-        {/* Database Diagnostics Button */}
-        <TouchableOpacity 
-          style={[styles.button, styles.diagnosticsButton]} 
-          onPress={runDiagnostics}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>🔍 Run Database Diagnostics</Text>
-        </TouchableOpacity>
-
         {/* Edit Button - Only show for own profile */}
         {isOwnProfile && (
           editing ? (
@@ -477,7 +449,6 @@ const styles = StyleSheet.create({
   button: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
   editButton: { backgroundColor: colors.primary, width: '100%' },
   adminButton: { backgroundColor: colors.error, width: '100%' },
-  diagnosticsButton: { backgroundColor: '#F59E0B', width: '100%' },
   saveButton: { backgroundColor: colors.success },
   cancelButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   buttonText: { color: colors.text, fontSize: 16, fontWeight: 'bold' },
