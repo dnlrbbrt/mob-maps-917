@@ -245,27 +245,21 @@ export default function SpotScreen({ route, navigation }: any) {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData?.user) throw new Error('Not authenticated');
 
-      // Check if already voted
-      const { data: existingVote } = await supabase
-        .from('votes')
-        .select('*')
-        .eq('clip_id', clipId)
-        .eq('user_id', userData.user.id)
-        .single();
+      console.log('Casting vote via RPC for clip:', clipId, 'by user:', userData.user.id);
 
-      if (existingVote) {
-        // Remove vote
-        await supabase.from('votes').delete().eq('id', existingVote.id);
-      } else {
-        // Add vote
-        await supabase.from('votes').insert([{
-          clip_id: clipId,
-          user_id: userData.user.id
-        }]);
+      const { data, error } = await supabase.rpc('cast_vote', { target_clip_id: clipId });
+      if (error) {
+        console.error('cast_vote RPC error:', error);
+        throw new Error(error.message || 'Failed to cast vote');
       }
 
-      loadClips(); // Refresh to show updated vote counts
+      console.log('cast_vote result:', data);
+
+      // Refresh to show updated vote counts and ownership
+      await loadClips();
+      console.log('Clips reloaded after RPC vote');
     } catch (e: any) {
+      console.error('Vote function error:', e);
       Alert.alert('Vote failed', e.message);
     }
   }
