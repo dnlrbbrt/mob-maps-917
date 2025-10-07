@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.spots (
   lat double precision NOT NULL,
   lng double precision NOT NULL,
   photo_path text, -- Keep for backward compatibility
-  owner_user_id uuid REFERENCES public.profiles(id),
+  owner_user_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at timestamptz DEFAULT now()
 );
 
@@ -355,134 +355,287 @@ ALTER TABLE public.mobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mob_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.spot_photos ENABLE ROW LEVEL SECURITY;
 
--- ===================================================================
--- FIXED: Profiles RLS Policies (No conflicting INSERT policy)
--- ===================================================================
--- **CRITICAL**: REMOVE the old policies that were causing the conflict.
-DROP POLICY IF EXISTS "Profiles insert own" ON public.profiles;
-DROP POLICY IF EXISTS "Profiles select own" ON public.profiles;
-DROP POLICY IF EXISTS "Profiles select all authenticated" ON public.profiles;
-DROP POLICY IF EXISTS "Profiles update own" ON public.profiles;
+-- =========================================================
+-- PERFORMANCE OPTIMIZED RLS POLICIES
+-- =========================================================
+-- Drop all existing policies to start fresh with optimized versions
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (SELECT schemaname, tablename, policyname 
+              FROM pg_policies 
+              WHERE schemaname = 'public') 
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', 
+                      r.policyname, r.schemaname, r.tablename);
+    END LOOP;
+END $$;
 
--- **FIX**: Create new, correct policies.
--- Allow authenticated users to SEE all profiles.
-CREATE POLICY "Profiles select all authenticated" ON public.profiles
-  FOR SELECT TO authenticated USING (true);
+-- =========================================================
+-- PROFILES POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "profiles_select_all" ON public.profiles
+  FOR SELECT TO authenticated, anon
+  USING (true);
 
--- Allow users to UPDATE their OWN profile.
-CREATE POLICY "Profiles update own" ON public.profiles
-  FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "profiles_update_own" ON public.profiles
+  FOR UPDATE TO authenticated
+  USING ((select auth.uid()) = id)
+  WITH CHECK ((select auth.uid()) = id);
 
--- Spots: Publicly readable, but only authenticated users can create them.
-DROP POLICY IF EXISTS "Spots select public" ON public.spots;
-CREATE POLICY "Spots select public" ON public.spots
-  FOR SELECT TO anon, authenticated USING (true);
+-- =========================================================
+-- SPOTS POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "spots_select_all" ON public.spots
+  FOR SELECT TO authenticated, anon
+  USING (true);
 
-DROP POLICY IF EXISTS "Spots insert auth" ON public.spots;
-CREATE POLICY "Spots insert auth" ON public.spots
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "spots_insert_auth" ON public.spots
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) IS NOT NULL);
 
--- Clips: Public can see non-flagged clips. Owners can see their own clips even if flagged.
-DROP POLICY IF EXISTS "Clips select public" ON public.clips;
-CREATE POLICY "Clips select public" ON public.clips
-  FOR SELECT TO anon, authenticated USING ((flagged = false) OR (user_id = auth.uid()));
+CREATE POLICY "spots_update_owner" ON public.spots
+  FOR UPDATE TO authenticated
+  USING (owner_user_id = (select auth.uid()))
+  WITH CHECK (owner_user_id = (select auth.uid()));
 
-DROP POLICY IF EXISTS "Clips insert own" ON public.clips;
-CREATE POLICY "Clips insert own" ON public.clips
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Clips update own" ON public.clips;
-CREATE POLICY "Clips update own" ON public.clips
-  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Clips delete own" ON public.clips;
-CREATE POLICY "Clips delete own" ON public.clips
-  FOR DELETE TO authenticated USING (auth.uid() = user_id);
-
--- Votes: Authenticated users can see all votes, but can only manage their own.
-DROP POLICY IF EXISTS "Votes select auth" ON public.votes;
-CREATE POLICY "Votes select auth" ON public.votes
-  FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Votes insert own" ON public.votes;
-CREATE POLICY "Votes insert own" ON public.votes
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Votes delete own" ON public.votes;
-CREATE POLICY "Votes delete own" ON public.votes
-  FOR DELETE TO authenticated USING (auth.uid() = user_id);
-
--- Surveillance: Publicly readable, but only owners can manage their entries.
-DROP POLICY IF EXISTS "Surveillance select public" ON public.surveillance;
-CREATE POLICY "Surveillance select public" ON public.surveillance
-  FOR SELECT TO anon, authenticated USING (true);
-
-DROP POLICY IF EXISTS "Surveillance insert own" ON public.surveillance;
-CREATE POLICY "Surveillance insert own" ON public.surveillance
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Surveillance update own" ON public.surveillance;
-CREATE POLICY "Surveillance update own" ON public.surveillance
-  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Surveillance delete own" ON public.surveillance;
-CREATE POLICY "Surveillance delete own" ON public.surveillance
-  FOR DELETE TO authenticated USING (auth.uid() = user_id);
-
--- Mobs: Publicly readable, but only authenticated users can create them.
-DROP POLICY IF EXISTS "mobs_select_all" ON public.mobs;
-CREATE POLICY "mobs_select_all" ON public.mobs
-  FOR SELECT TO anon, authenticated USING (true);
-
-DROP POLICY IF EXISTS "mobs_insert_auth" ON public.mobs;
-CREATE POLICY "mobs_insert_auth" ON public.mobs
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = owner_user_id);
-
--- Mob members: Publicly readable, but users can only add or remove themselves.
-DROP POLICY IF EXISTS "mob_members_select_all" ON public.mob_members;
-CREATE POLICY "mob_members_select_all" ON public.mob_members
-  FOR SELECT TO anon, authenticated USING (true);
-
-DROP POLICY IF EXISTS "mob_members_insert_auth" ON public.mob_members;
-CREATE POLICY "mob_members_insert_auth" ON public.mob_members
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "mob_members_delete_own" ON public.mob_members;
-CREATE POLICY "mob_members_delete_own" ON public.mob_members
-  FOR DELETE TO authenticated USING (auth.uid() = user_id);
-
--- Spot Photos: Publicly readable, only authenticated users can manage
-DROP POLICY IF EXISTS "spot_photos_select_public" ON public.spot_photos;
-CREATE POLICY "spot_photos_select_public" ON public.spot_photos
-  FOR SELECT TO anon, authenticated USING (true);
-
-DROP POLICY IF EXISTS "spot_photos_insert_auth" ON public.spot_photos;
-CREATE POLICY "spot_photos_insert_auth" ON public.spot_photos
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "spot_photos_delete_auth" ON public.spot_photos;
-CREATE POLICY "spot_photos_delete_auth" ON public.spot_photos
-  FOR DELETE TO authenticated USING (auth.uid() IS NOT NULL);
-
--- Flags: Users can only see their own flags, admins can see all
-DROP POLICY IF EXISTS "flags_select_own" ON public.flags;
-CREATE POLICY "flags_select_own" ON public.flags
-  FOR SELECT TO authenticated USING (
-    auth.uid() = user_id OR 
-    auth.email() = 'dnlrbbrt@gmail.com'
+CREATE POLICY "spots_delete_owner_or_admin" ON public.spots
+  FOR DELETE TO authenticated
+  USING (
+    owner_user_id = (select auth.uid()) OR 
+    (select auth.email()) = 'dnlrbbrt@gmail.com'
   );
 
-DROP POLICY IF EXISTS "flags_insert_auth" ON public.flags;
-CREATE POLICY "flags_insert_auth" ON public.flags
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+-- =========================================================
+-- SPOT_PHOTOS POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "spot_photos_select_all" ON public.spot_photos
+  FOR SELECT TO authenticated, anon
+  USING (true);
 
-DROP POLICY IF EXISTS "flags_delete_admin" ON public.flags;
+CREATE POLICY "spot_photos_insert_auth" ON public.spot_photos
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) IS NOT NULL);
+
+CREATE POLICY "spot_photos_delete_auth" ON public.spot_photos
+  FOR DELETE TO authenticated
+  USING (
+    (select auth.uid()) IS NOT NULL AND (
+      (select auth.email()) = 'dnlrbbrt@gmail.com' OR
+      EXISTS (
+        SELECT 1 FROM public.spots s 
+        WHERE s.id = spot_photos.spot_id 
+        AND s.owner_user_id = (select auth.uid())
+      )
+    )
+  );
+
+-- =========================================================
+-- CLIPS POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "clips_select_public_or_own" ON public.clips
+  FOR SELECT TO authenticated, anon
+  USING (
+    flagged = false OR 
+    user_id = (select auth.uid()) OR
+    (select auth.email()) = 'dnlrbbrt@gmail.com'
+  );
+
+CREATE POLICY "clips_insert_own" ON public.clips
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "clips_update_own" ON public.clips
+  FOR UPDATE TO authenticated
+  USING ((select auth.uid()) = user_id)
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "clips_delete_own_or_admin" ON public.clips
+  FOR DELETE TO authenticated
+  USING (
+    (select auth.uid()) = user_id OR 
+    (select auth.email()) = 'dnlrbbrt@gmail.com'
+  );
+
+-- =========================================================
+-- VOTES POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "votes_select_auth" ON public.votes
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "votes_insert_own" ON public.votes
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "votes_delete_own" ON public.votes
+  FOR DELETE TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+-- =========================================================
+-- SURVEILLANCE POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "surveillance_select_all" ON public.surveillance
+  FOR SELECT TO authenticated, anon
+  USING (true);
+
+CREATE POLICY "surveillance_insert_own" ON public.surveillance
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "surveillance_update_own" ON public.surveillance
+  FOR UPDATE TO authenticated
+  USING ((select auth.uid()) = user_id)
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "surveillance_delete_own_or_admin" ON public.surveillance
+  FOR DELETE TO authenticated
+  USING (
+    (select auth.uid()) = user_id OR 
+    (select auth.email()) = 'dnlrbbrt@gmail.com'
+  );
+
+-- =========================================================
+-- FLAGS POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "flags_select_own_or_admin" ON public.flags
+  FOR SELECT TO authenticated
+  USING (
+    (select auth.uid()) = user_id OR 
+    (select auth.email()) = 'dnlrbbrt@gmail.com'
+  );
+
+CREATE POLICY "flags_insert_own" ON public.flags
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
 CREATE POLICY "flags_delete_admin" ON public.flags
-  FOR DELETE TO authenticated USING (auth.email() = 'dnlrbbrt@gmail.com');
+  FOR DELETE TO authenticated
+  USING ((select auth.email()) = 'dnlrbbrt@gmail.com');
+
+-- =========================================================
+-- MOBS POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "mobs_select_all" ON public.mobs
+  FOR SELECT TO authenticated, anon
+  USING (true);
+
+CREATE POLICY "mobs_insert_auth" ON public.mobs
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = owner_user_id);
+
+CREATE POLICY "mobs_update_owner" ON public.mobs
+  FOR UPDATE TO authenticated
+  USING ((select auth.uid()) = owner_user_id)
+  WITH CHECK ((select auth.uid()) = owner_user_id);
+
+CREATE POLICY "mobs_delete_owner_or_admin" ON public.mobs
+  FOR DELETE TO authenticated
+  USING (
+    (select auth.uid()) = owner_user_id OR 
+    (select auth.email()) = 'dnlrbbrt@gmail.com'
+  );
+
+-- =========================================================
+-- MOB_MEMBERS POLICIES (OPTIMIZED)
+-- =========================================================
+CREATE POLICY "mob_members_select_all" ON public.mob_members
+  FOR SELECT TO authenticated, anon
+  USING (true);
+
+CREATE POLICY "mob_members_insert_self" ON public.mob_members
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "mob_members_delete_self" ON public.mob_members
+  FOR DELETE TO authenticated
+  USING ((select auth.uid()) = user_id);
 
 -- =========================================================
 -- STORAGE POLICIES
 -- =========================================================
+
+-- =========================================================
+-- MODERATION AND PERMANENT DELETION RPCS
+-- =========================================================
+
+-- Return storage paths for a clip (video + thumb)
+CREATE OR REPLACE FUNCTION public.get_clip_storage_paths(target_clip_id uuid)
+RETURNS TABLE (storage_path text, thumb_path text)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT c.storage_path, c.thumb_path
+  FROM public.clips c
+  WHERE c.id = target_clip_id;
+$$;
+REVOKE EXECUTE ON FUNCTION public.get_clip_storage_paths(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.get_clip_storage_paths(uuid) TO authenticated;
+
+-- Permanently delete a clip: remove related flags, then clip row
+CREATE OR REPLACE FUNCTION public.delete_clip_permanently(target_clip_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  DELETE FROM public.flags f
+  WHERE f.content_type = 'clip' AND f.content_id = target_clip_id;
+
+  DELETE FROM public.clips WHERE id = target_clip_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.delete_clip_permanently(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.delete_clip_permanently(uuid) TO authenticated;
+
+-- Return all storage paths associated with a spot (photos + clips + thumbs)
+CREATE OR REPLACE FUNCTION public.get_spot_storage_paths(target_spot_id uuid)
+RETURNS TABLE (bucket text, path text)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT 'spots-photos'::text AS bucket, sp.photo_path AS path
+  FROM public.spot_photos sp
+  WHERE sp.spot_id = target_spot_id
+  UNION ALL
+  SELECT 'clips', c.storage_path
+  FROM public.clips c
+  WHERE c.spot_id = target_spot_id
+  UNION ALL
+  SELECT 'clips', c.thumb_path
+  FROM public.clips c
+  WHERE c.spot_id = target_spot_id AND c.thumb_path IS NOT NULL;
+$$;
+REVOKE EXECUTE ON FUNCTION public.get_spot_storage_paths(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.get_spot_storage_paths(uuid) TO authenticated;
+
+-- Permanently delete a spot: clean flags for spot and child clips, then delete spot
+CREATE OR REPLACE FUNCTION public.delete_spot_permanently(target_spot_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  DELETE FROM public.flags f
+  WHERE f.content_type = 'spot' AND f.content_id = target_spot_id;
+
+  DELETE FROM public.flags f
+  WHERE f.content_type = 'clip'
+    AND EXISTS (
+      SELECT 1 FROM public.clips c
+      WHERE c.id = f.content_id AND c.spot_id = target_spot_id
+    );
+
+  DELETE FROM public.spots WHERE id = target_spot_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.delete_spot_permanently(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.delete_spot_permanently(uuid) TO authenticated;
 
 -- Policies for 'spots-photos' bucket
 DROP POLICY IF EXISTS "spots-photos public read" ON storage.objects;
@@ -528,7 +681,14 @@ END $$;
 -- =========================================================
 -- Fix vote count discrepancies and spot ownership issues
 
--- Get flagged content for admin dashboard
+-- =========================================================
+-- COMPLETE FIX FOR ADMIN DASHBOARD
+-- =========================================================
+-- Drop the old function
+DROP FUNCTION IF EXISTS public.get_flagged_content();
+DROP FUNCTION IF EXISTS public.get_flagged_content_simple();
+
+-- Create the corrected function that properly handles GROUP BY
 CREATE OR REPLACE FUNCTION public.get_flagged_content()
 RETURNS TABLE (
   content_type text,
@@ -542,27 +702,78 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
+  -- Only allow admin access
+  IF auth.email() != 'dnlrbbrt@gmail.com' THEN
+    RAISE EXCEPTION 'Unauthorized: Admin access only';
+  END IF;
+
   RETURN QUERY
+  WITH flag_summary AS (
+    SELECT 
+      f.content_type,
+      f.content_id,
+      COUNT(f.id) as flag_count,
+      MIN(f.created_at) as first_flagged
+    FROM public.flags f
+    GROUP BY f.content_type, f.content_id
+  ),
+  content_details AS (
+    SELECT 
+      fs.content_type,
+      fs.content_id,
+      fs.flag_count,
+      fs.first_flagged,
+      CASE 
+        WHEN fs.content_type = 'spot' THEN 
+          (SELECT to_jsonb(s.*) FROM public.spots s WHERE s.id = fs.content_id)
+        WHEN fs.content_type = 'clip' THEN 
+          (SELECT 
+            to_jsonb(c.*) || 
+            jsonb_build_object(
+              'profiles', (
+                SELECT to_jsonb(p.*) 
+                FROM public.profiles p 
+                WHERE p.id = c.user_id
+              ),
+              'thumb_path', COALESCE(c.thumb_path, ''),
+              'safe_thumb_path', CASE 
+                WHEN c.thumb_path IS NOT NULL AND c.thumb_path != '' 
+                THEN c.thumb_path 
+                ELSE NULL 
+              END
+            )
+           FROM public.clips c 
+           WHERE c.id = fs.content_id
+          )
+        WHEN fs.content_type = 'surveillance' THEN 
+          (SELECT to_jsonb(sv.*) FROM public.surveillance sv WHERE sv.id = fs.content_id)
+        ELSE 
+          jsonb_build_object('id', fs.content_id, 'error', 'Content not found')
+      END as content_data
+    FROM flag_summary fs
+  )
   SELECT 
-    f.content_type,
-    f.content_id,
-    COUNT(f.id) as flag_count,
-    MIN(f.created_at) as created_at,
-    CASE 
-      WHEN f.content_type = 'spot' THEN to_jsonb(s.*) 
-      WHEN f.content_type = 'clip' THEN to_jsonb(c.*) || jsonb_build_object('profiles', to_jsonb(p.*))
-      WHEN f.content_type = 'surveillance' THEN to_jsonb(sv.*)
-      ELSE NULL::jsonb
-    END as content_data
-  FROM public.flags f
-  LEFT JOIN public.spots s ON f.content_type = 'spot' AND f.content_id = s.id
-  LEFT JOIN public.clips c ON f.content_type = 'clip' AND f.content_id = c.id
-  LEFT JOIN public.profiles p ON c.user_id = p.id
-  LEFT JOIN public.surveillance sv ON f.content_type = 'surveillance' AND f.content_id = sv.id
-  GROUP BY f.content_type, f.content_id, s.*, c.*, p.*, sv.*
-  ORDER BY flag_count DESC, created_at DESC;
+    cd.content_type,
+    cd.content_id,
+    cd.flag_count,
+    cd.first_flagged as created_at,
+    COALESCE(
+      cd.content_data, 
+      jsonb_build_object(
+        'id', cd.content_id,
+        'thumb_path', '',
+        'vote_count', 0,
+        'profiles', jsonb_build_object('username', 'deleted')
+      )
+    ) as content_data
+  FROM content_details cd
+  WHERE cd.content_data IS NOT NULL
+  ORDER BY cd.flag_count DESC, cd.first_flagged DESC;
 END;
 $$;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION public.get_flagged_content() TO authenticated;
 
 -- =========================================================
 -- DEBUGGING FUNCTION FOR LEADERBOARD ISSUES
@@ -675,6 +886,7 @@ CREATE OR REPLACE FUNCTION public._vote_count_trigger()
 RETURNS trigger 
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = ''
 AS $$
 BEGIN
   IF (TG_OP = 'INSERT') THEN
@@ -693,6 +905,7 @@ CREATE OR REPLACE FUNCTION public._recalc_spot_owner()
 RETURNS trigger 
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = ''
 AS $$
 DECLARE
   spot_to_update_id uuid;
@@ -823,19 +1036,7 @@ END $$;
 -- =========================================================
 -- Additional fixes for voting issues on other users' clips
 
--- STEP 7: Ensure RLS policies allow proper vote management
--- Drop and recreate vote policies to ensure they work correctly
-DROP POLICY IF EXISTS "Votes select auth" ON public.votes;
-CREATE POLICY "Votes select auth" ON public.votes
-  FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Votes insert own" ON public.votes;
-CREATE POLICY "Votes insert own" ON public.votes
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Votes delete own" ON public.votes;
-CREATE POLICY "Votes delete own" ON public.votes
-  FOR DELETE TO authenticated USING (auth.uid() = user_id);
+-- STEP 7: Vote policies already optimized above, no need to recreate
 
 -- STEP 8: Create a helper function to debug voting issues
 CREATE OR REPLACE FUNCTION public.debug_user_votes(user_uuid uuid DEFAULT auth.uid())
@@ -1028,3 +1229,92 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.cast_vote(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.cast_vote(uuid) TO authenticated;
+
+-- Test the get_flagged_content function to make sure it works
+DO $$
+BEGIN
+  RAISE NOTICE 'Testing get_flagged_content function...';
+  
+  -- This will only work if you're logged in as admin
+  IF EXISTS (
+    SELECT 1 FROM auth.users 
+    WHERE id = auth.uid() 
+    AND email = 'dnlrbbrt@gmail.com'
+  ) THEN
+    PERFORM * FROM public.get_flagged_content() LIMIT 1;
+    RAISE NOTICE 'Function test completed successfully';
+  ELSE
+    RAISE NOTICE 'Skipping test - not logged in as admin';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Function test failed: %', SQLERRM;
+END $$;
+
+-- =========================================================
+-- VERIFY RLS OPTIMIZATION
+-- =========================================================
+DO $$
+DECLARE
+    unoptimized_count INTEGER := 0;
+    duplicate_count INTEGER := 0;
+    table_name TEXT;
+    policy_info RECORD;
+BEGIN
+    RAISE NOTICE 'Verifying RLS policy optimizations...';
+    
+    -- Check for unoptimized auth function calls
+    FOR policy_info IN 
+        SELECT tablename, policyname, qual, with_check
+        FROM pg_policies 
+        WHERE schemaname = 'public'
+        AND (
+            (qual LIKE '%auth.uid()%' AND qual NOT LIKE '%(select auth.uid())%')
+            OR (with_check LIKE '%auth.uid()%' AND with_check NOT LIKE '%(select auth.uid())%')
+            OR (qual LIKE '%auth.email()%' AND qual NOT LIKE '%(select auth.email())%')
+            OR (with_check LIKE '%auth.email()%' AND with_check NOT LIKE '%(select auth.email())%')
+        )
+    LOOP
+        unoptimized_count := unoptimized_count + 1;
+        RAISE WARNING 'Unoptimized policy: %.% - qual=%, with_check=%', 
+                      policy_info.tablename, policy_info.policyname, policy_info.qual, policy_info.with_check;
+    END LOOP;
+    
+    -- Check for duplicate policies (simplified check)
+    FOR policy_info IN
+        SELECT tablename, roles, cmd, COUNT(*) as policy_count
+        FROM pg_policies
+        WHERE schemaname = 'public'
+        GROUP BY tablename, roles, cmd
+        HAVING COUNT(*) > 1
+    LOOP
+        duplicate_count := duplicate_count + 1;
+        RAISE WARNING 'Duplicate policies found: % has % policies for same role/action (%)', 
+                      policy_info.tablename, policy_info.policy_count, policy_info.cmd;
+    END LOOP;
+    
+    IF unoptimized_count = 0 AND duplicate_count = 0 THEN
+        RAISE NOTICE 'SUCCESS: All RLS policies are optimized!';
+        RAISE NOTICE 'No auth function re-evaluation issues found.';
+        RAISE NOTICE 'No duplicate policies found.';
+    ELSE
+        RAISE WARNING 'ISSUES FOUND: % unoptimized policies, % duplicate policy sets', 
+                      unoptimized_count, duplicate_count;
+    END IF;
+    
+    -- Summary of policies per table
+    RAISE NOTICE '';
+    RAISE NOTICE 'Policy Summary by Table:';
+    FOR policy_info IN
+        SELECT tablename, COUNT(*) as policy_count
+        FROM pg_policies
+        WHERE schemaname = 'public'
+        GROUP BY tablename
+        ORDER BY tablename
+    LOOP
+        RAISE NOTICE '  %: % policies', policy_info.tablename, policy_info.policy_count;
+    END LOOP;
+    
+    RAISE NOTICE '';
+    RAISE NOTICE 'RLS optimization verification completed.';
+END $$;

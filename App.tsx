@@ -68,6 +68,12 @@ function MainTabs() {
       <Tab.Screen 
         name="Profile" 
         component={ProfileScreen}
+        listeners={({ navigation, route }) => ({
+          tabPress: () => {
+            // Ensure the Profile tab always shows the authenticated user's profile
+            navigation.setParams({ userId: undefined });
+          }
+        })}
         options={{
           tabBarIcon: ({ color, size }) => (
             <Text style={{ fontSize: size, color }}>👤</Text>

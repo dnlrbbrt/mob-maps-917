@@ -75,3 +75,5 @@ export async function toggleVote(clipId: string): Promise<{ success: boolean; er
     return { success: false, error: `Unexpected error: ${error.message}` };
   }
 }
+
+
