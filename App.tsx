@@ -12,6 +12,7 @@ import ProfileScreen from './src/screens/ProfileScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import MyMobScreen from './src/screens/MyMobScreen';
 import AdminScreen from './src/screens/AdminScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import { colors } from './src/constants/colors';
 
 const Stack = createNativeStackNavigator();
@@ -109,6 +110,7 @@ export default function App() {
           <>
             <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen name="Admin" component={AdminScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
           </>
         ) : (
           <Stack.Screen name="Auth">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../../supabase';
 import { colors } from '../constants/colors';
@@ -32,50 +32,76 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Sign in</Text>
-      <TextInput
-        style={styles.input}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        secureTextEntry
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.row}>
-        <TouchableOpacity 
-          style={[styles.button, styles.primaryButton, loading && styles.buttonDisabled]} 
-          onPress={signIn} 
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>{loading ? '...' : 'Sign In'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.button, styles.secondaryButton]} 
-          onPress={signUp} 
-          disabled={loading}
-        >
-          <Text style={styles.secondaryButtonText}>Sign Up</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Image 
+          source={require('../../assets/logo-new.png')} 
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.title}>Sign in</Text>
+        <TextInput
+          style={styles.input}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          placeholder="Email"
+          placeholderTextColor="#999999"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <TextInput
+          style={styles.input}
+          secureTextEntry
+          placeholder="Password"
+          placeholderTextColor="#999999"
+          value={password}
+          onChangeText={setPassword}
+        />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <View style={styles.row}>
+          <TouchableOpacity 
+            style={[styles.button, styles.primaryButton, loading && styles.buttonDisabled]} 
+            onPress={signIn} 
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>{loading ? '...' : 'Sign In'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.button, styles.secondaryButton]} 
+            onPress={signUp} 
+            disabled={loading}
+          >
+            <Text style={styles.secondaryButtonText}>Sign Up</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { 
-    flex: 1, 
-    padding: 24, 
-    justifyContent: 'center',
+    flex: 1,
     backgroundColor: colors.background
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 24,
+    justifyContent: 'center'
+  },
+  logo: {
+    width: '90%',
+    height: 200,
+    alignSelf: 'center',
+    marginBottom: 40
   },
   title: { 
     fontSize: 24, 

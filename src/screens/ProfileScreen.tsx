@@ -376,6 +376,16 @@ export default function ProfileScreen({ route, navigation }: any) {
           )}
         </View>
 
+        {/* Settings Button - Only show for own profile */}
+        {isOwnProfile && (
+          <TouchableOpacity 
+            style={[styles.button, styles.settingsButton]} 
+            onPress={() => navigation.navigate('Settings')}
+          >
+            <Text style={styles.buttonText}>⚙️ Settings</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Admin Button */}
         {isAdmin && (
           <TouchableOpacity 
@@ -448,6 +458,7 @@ const styles = StyleSheet.create({
   buttonRow: { flexDirection: 'row', width: '100%', gap: 10 },
   button: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
   editButton: { backgroundColor: colors.primary, width: '100%' },
+  settingsButton: { backgroundColor: colors.surfaceVariant, width: '100%', borderWidth: 1, borderColor: colors.border },
   adminButton: { backgroundColor: colors.error, width: '100%' },
   saveButton: { backgroundColor: colors.success },
   cancelButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },

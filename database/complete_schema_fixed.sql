@@ -111,6 +111,16 @@ CREATE TABLE IF NOT EXISTS public.mob_members (
   UNIQUE (mob_id, user_id)
 );
 
+-- Account deletion requests table for GDPR/CCPA compliance
+CREATE TABLE IF NOT EXISTS public.account_deletion_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  email text,
+  requested_at timestamptz NOT NULL,
+  processed_at timestamptz,
+  created_at timestamptz DEFAULT now()
+);
+
 -- =========================================================
 -- INDEXES
 -- =========================================================
@@ -128,6 +138,8 @@ CREATE INDEX IF NOT EXISTS idx_flags_created_at ON public.flags(created_at DESC)
 CREATE INDEX IF NOT EXISTS idx_mobs_invite_code ON public.mobs(invite_code);
 CREATE INDEX IF NOT EXISTS idx_mob_members_mob_id ON public.mob_members(mob_id);
 CREATE INDEX IF NOT EXISTS idx_mob_members_user_id ON public.mob_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_account_deletion_requests_user_id ON public.account_deletion_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_account_deletion_requests_created_at ON public.account_deletion_requests(created_at DESC);
 
 -- =========================================================
 -- FUNCTIONS
@@ -354,6 +366,7 @@ ALTER TABLE public.flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mob_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.spot_photos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.account_deletion_requests ENABLE ROW LEVEL SECURITY;
 
 -- =========================================================
 -- PERFORMANCE OPTIMIZED RLS POLICIES
@@ -551,6 +564,15 @@ CREATE POLICY "mob_members_insert_self" ON public.mob_members
 CREATE POLICY "mob_members_delete_self" ON public.mob_members
   FOR DELETE TO authenticated
   USING ((select auth.uid()) = user_id);
+
+-- Account deletion request policies
+CREATE POLICY "account_deletion_requests_insert_self" ON public.account_deletion_requests
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "account_deletion_requests_select_admin" ON public.account_deletion_requests
+  FOR SELECT TO authenticated
+  USING ((select auth.jwt() ->> 'email') = 'dnlrbbrt@gmail.com');
 
 -- =========================================================
 -- STORAGE POLICIES

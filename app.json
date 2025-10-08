@@ -18,7 +18,7 @@
         "NSCameraUsageDescription": "Record skate clips",
         "NSMicrophoneUsageDescription": "Audio for clips",
         "NSLocationWhenInUseUsageDescription": "Center map on your location and find nearby skate spots",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Center map on your location and find nearby skate spots",
+        "NSPhotoLibraryUsageDescription": "Select photos and videos from your library to upload",
         "NSPhotoLibraryAddUsageDescription": "Save and upload spot photos"
       }
     },
