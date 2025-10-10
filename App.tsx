@@ -15,6 +15,11 @@ import MyMobScreen from './src/screens/MyMobScreen';
 import AdminScreen from './src/screens/AdminScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { colors } from './src/constants/colors';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import { initializeSentry, setSentryUser, clearSentryUser } from './src/config/sentry';
+
+// Initialize Sentry crash reporting
+initializeSentry();
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -130,8 +135,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      // Set Sentry user context when session loads
+      if (data.session?.user) {
+        setSentryUser(
+          data.session.user.id,
+          data.session.user.email,
+          data.session.user.email?.split('@')[0]
+        );
+      }
+    });
+    
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+      // Update Sentry user context on auth changes
+      if (s?.user) {
+        setSentryUser(s.user.id, s.user.email, s.user.email?.split('@')[0]);
+      } else {
+        clearSentryUser();
+      }
+    });
+    
     return () => { sub.subscription.unsubscribe(); };
   }, []);
 
@@ -141,22 +166,24 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {session ? (
-          <>
-            <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen name="Admin" component={AdminScreen} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
-          </>
-        ) : (
-          <Stack.Screen name="Auth">
-            {() => <AuthScreen onAuth={() => supabase.auth.getSession().then(({ data }) => setSession(data.session))} />}
-          </Stack.Screen>
-        )}
-      </Stack.Navigator>
-      <StatusBar style="auto" />
-    </NavigationContainer>
+    <ErrorBoundary>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {session ? (
+            <>
+              <Stack.Screen name="Main" component={MainTabs} />
+              <Stack.Screen name="Admin" component={AdminScreen} />
+              <Stack.Screen name="Settings" component={SettingsScreen} />
+            </>
+          ) : (
+            <Stack.Screen name="Auth">
+              {() => <AuthScreen onAuth={() => supabase.auth.getSession().then(({ data }) => setSession(data.session))} />}
+            </Stack.Screen>
+          )}
+        </Stack.Navigator>
+        <StatusBar style="auto" />
+      </NavigationContainer>
+    </ErrorBoundary>
   );
 }
 

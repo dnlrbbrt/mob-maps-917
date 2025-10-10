@@ -2,9 +2,41 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Linking } from 'react-native';
 import { supabase } from '../../supabase';
 import { colors } from '../constants/colors';
+import { captureMessage } from '../config/sentry';
+import logger from '../utils/logger';
 
 export default function SettingsScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
+  const [shouldCrash, setShouldCrash] = useState(false);
+
+  // Test function to trigger an error (for ErrorBoundary and Sentry testing)
+  function testErrorBoundary() {
+    Alert.alert(
+      '🧪 Test Error Boundary & Sentry',
+      'This will intentionally crash the app to test if the Error Boundary catches it and Sentry logs it. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Trigger Crash',
+          style: 'destructive',
+          onPress: () => {
+            // Log some breadcrumbs before the crash (helps with debugging)
+            logger.navigation('SettingsScreen', { action: 'test-error' });
+            logger.tagged('TEST', 'About to trigger test error');
+            captureMessage('Test: About to trigger intentional crash', 'info');
+            
+            // Trigger the crash
+            setShouldCrash(true);
+          }
+        }
+      ]
+    );
+  }
+
+  // This will cause a render error that ErrorBoundary will catch and send to Sentry
+  if (shouldCrash) {
+    throw new Error('🧪 TEST ERROR: ErrorBoundary and Sentry test triggered from Settings screen');
+  }
 
   async function requestAccountDeletion() {
     Alert.alert(
@@ -119,12 +151,50 @@ export default function SettingsScreen({ navigation }: any) {
             <Text style={styles.settingText}>Contact Support</Text>
             <Text style={styles.settingArrow}>→</Text>
           </TouchableOpacity>
+
+          {/* TEST BUTTON - Remove after ErrorBoundary & Sentry verification */}
+          {__DEV__ && (
+            <TouchableOpacity 
+              style={[styles.settingItem, styles.testButton]} 
+              onPress={testErrorBoundary}
+            >
+              <Text style={styles.testButtonText}>🧪 Test Error Boundary & Sentry (DEV)</Text>
+              <Text style={styles.settingArrow}>💥</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Account Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
           
+          <TouchableOpacity 
+            style={styles.signOutButton} 
+            onPress={async () => {
+              Alert.alert(
+                'Sign Out',
+                'Are you sure you want to sign out?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Sign Out',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await supabase.auth.signOut();
+                      } catch (e) {
+                        console.error('Sign out error:', e);
+                        Alert.alert('Error', 'Failed to sign out');
+                      }
+                    }
+                  }
+                ]
+              );
+            }}
+          >
+            <Text style={styles.signOutButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity 
             style={[styles.deleteButton, loading && styles.buttonDisabled]} 
             onPress={requestAccountDeletion}
@@ -211,6 +281,21 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     color: colors.textSecondary 
   },
+  signOutButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16
+  },
+  signOutButtonText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600'
+  },
   deleteButton: { 
     backgroundColor: colors.error, 
     paddingVertical: 14, 
@@ -244,5 +329,17 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     textAlign: 'center',
     fontStyle: 'italic'
+  },
+  testButton: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 152, 0, 0.3)',
+    borderRadius: 8,
+    marginTop: 8
+  },
+  testButtonText: {
+    fontSize: 15,
+    color: '#ff9800',
+    fontWeight: '600'
   }
 });

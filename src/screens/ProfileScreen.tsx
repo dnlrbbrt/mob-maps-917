@@ -283,10 +283,6 @@ export default function ProfileScreen({ route, navigation }: any) {
     return supabase.storage.from('spots-photos').getPublicUrl(profile.avatar_url).data.publicUrl;
   }
 
-  async function signOut() {
-    await supabase.auth.signOut();
-  }
-
   if (!profile) {
     return (
       <View style={styles.container}>
@@ -312,9 +308,14 @@ export default function ProfileScreen({ route, navigation }: any) {
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Profile</Text>
-        <TouchableOpacity onPress={signOut} style={styles.signOutButton}>
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
+        {isOwnProfile && (
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('Settings')} 
+            style={styles.settingsButton}
+          >
+            <Text style={styles.settingsText}>⚙️</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.profileSection}>
@@ -425,8 +426,8 @@ const styles = StyleSheet.create({
   backButton: { marginRight: 16 },
   backText: { fontSize: 16, color: colors.primary },
   title: { flex: 1, fontSize: 20, fontWeight: 'bold', color: colors.text },
-  signOutButton: {},
-  signOutText: { fontSize: 16, color: colors.error },
+  settingsButton: { padding: 4 },
+  settingsText: { fontSize: 24 },
   loading: { textAlign: 'center', marginTop: 50, fontSize: 16, color: colors.textSecondary },
   
   profileSection: { padding: 20, alignItems: 'center' },
