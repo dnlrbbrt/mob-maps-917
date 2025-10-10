@@ -43,9 +43,10 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
         showsVerticalScrollIndicator={false}
       >
         <Image 
-          source={require('../../assets/logo-new.png')} 
+          source={require('../../assets/mob-maps-image.jpg')} 
           style={styles.logo}
           resizeMode="contain"
+          fadeDuration={0}
         />
         <Text style={styles.title}>Sign in</Text>
         <TextInput

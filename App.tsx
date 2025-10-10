@@ -1,10 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, Image } from 'react-native';
 import { supabase } from './supabase';
 import { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Asset } from 'expo-asset';
 import AuthScreen from './src/screens/AuthScreen';
 import MapScreen from './src/screens/MapScreen';
 import SpotScreen from './src/screens/SpotScreen';
@@ -17,6 +18,17 @@ import { colors } from './src/constants/colors';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+// Preload images for faster initial render
+function cacheImages(images: any[]) {
+  return images.map(image => {
+    if (typeof image === 'string') {
+      return Image.prefetch(image);
+    } else {
+      return Asset.fromModule(image).downloadAsync();
+    }
+  });
+}
 
 function MainTabs() {
   return (
@@ -96,12 +108,37 @@ function MapStack() {
 
 export default function App() {
   const [session, setSession] = useState<any | null>(null);
+  const [appIsReady, setAppIsReady] = useState(false);
+
+  // Preload critical assets
+  useEffect(() => {
+    async function loadResourcesAndDataAsync() {
+      try {
+        await Promise.all([
+          ...cacheImages([
+            require('./assets/mob-maps-image.jpg')
+          ])
+        ]);
+      } catch (e) {
+        console.warn('Error preloading assets:', e);
+      } finally {
+        setAppIsReady(true);
+      }
+    }
+
+    loadResourcesAndDataAsync();
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => { sub.subscription.unsubscribe(); };
   }, []);
+
+  // Wait for assets to preload before showing app
+  if (!appIsReady) {
+    return null;
+  }
 
   return (
     <NavigationContainer>
