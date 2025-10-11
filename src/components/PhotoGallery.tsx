@@ -31,7 +31,11 @@ export default function PhotoGallery({ photos, getImageUrl, onPhotoPress }: Phot
             onPress={() => onPhotoPress?.(0)}
             style={styles.singlePhotoTouchable}
           >
-            <Image source={{ uri: imageUrl }} style={styles.singlePhoto} />
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={styles.singlePhoto} 
+              fadeDuration={200}
+            />
           </TouchableOpacity>
         ) : (
           <View style={styles.placeholderContainer}>
@@ -68,7 +72,11 @@ export default function PhotoGallery({ photos, getImageUrl, onPhotoPress }: Phot
               onPress={() => onPhotoPress?.(index)}
             >
               {imageUrl ? (
-                <Image source={{ uri: imageUrl }} style={styles.galleryPhoto} />
+                <Image 
+                  source={{ uri: imageUrl }} 
+                  style={styles.galleryPhoto} 
+                  fadeDuration={200}
+                />
               ) : (
                 <View style={styles.placeholderContainer}>
                   <Text style={styles.placeholderText}>📷</Text>

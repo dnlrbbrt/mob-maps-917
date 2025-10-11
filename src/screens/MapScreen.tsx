@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react';
 import { View, Modal, Image, TextInput, Button, StyleSheet, Text, Alert, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
 import MapView, { MapPressEvent, Marker, Callout, Region } from 'react-native-maps';
 import * as ImagePicker from 'expo-image-picker';
@@ -18,16 +18,29 @@ export default function MapScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [shouldLoadSpots, setShouldLoadSpots] = useState(false);
+  
+  // Refs for debouncing
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastLoadedRegionRef = useRef<Region | null>(null);
 
   useEffect(() => {
     getCurrentLocation();
+    
+    // Cleanup debounce timer on unmount
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
   }, []);
 
+  // Load spots when zoom level becomes appropriate
   useEffect(() => {
-    if (shouldLoadSpots && mapRegion) {
-      loadSpotsInRegion();
+    if (shouldLoadSpots && mapRegion && !lastLoadedRegionRef.current) {
+      // Only load spots initially when zooming in, not on every region change
+      loadSpotsInRegion(mapRegion);
     }
-  }, [shouldLoadSpots, mapRegion]);
+  }, [shouldLoadSpots, mapRegion, loadSpotsInRegion]);
 
   async function getCurrentLocation() {
     try {
@@ -80,15 +93,30 @@ export default function MapScreen({ navigation }: any) {
     setShouldLoadSpots(isMultiCityLevel);
   }
 
-  async function loadSpotsInRegion() {
-    if (!mapRegion) return;
+  const loadSpotsInRegion = useCallback(async (region: Region) => {
+    if (!region) return;
+    
+    // Check if we've already loaded spots for a similar region (prevent duplicate loads)
+    if (lastLoadedRegionRef.current) {
+      const latDiff = Math.abs(lastLoadedRegionRef.current.latitude - region.latitude);
+      const lngDiff = Math.abs(lastLoadedRegionRef.current.longitude - region.longitude);
+      const deltaDiff = Math.abs(lastLoadedRegionRef.current.latitudeDelta - region.latitudeDelta);
+      
+      // Only reload if the region has changed significantly (moved ~20% of viewport)
+      if (latDiff < region.latitudeDelta * 0.2 && 
+          lngDiff < region.longitudeDelta * 0.2 && 
+          deltaDiff < region.latitudeDelta * 0.2) {
+        return; // Region hasn't changed much, skip reload
+      }
+    }
     
     try {
-      // Calculate bounding box for current region
-      const northLat = mapRegion.latitude + mapRegion.latitudeDelta / 2;
-      const southLat = mapRegion.latitude - mapRegion.latitudeDelta / 2;
-      const eastLng = mapRegion.longitude + mapRegion.longitudeDelta / 2;
-      const westLng = mapRegion.longitude - mapRegion.longitudeDelta / 2;
+      // Calculate bounding box for current region with buffer (load slightly more than visible)
+      const buffer = 0.2; // 20% buffer
+      const northLat = region.latitude + (region.latitudeDelta / 2) * (1 + buffer);
+      const southLat = region.latitude - (region.latitudeDelta / 2) * (1 + buffer);
+      const eastLng = region.longitude + (region.longitudeDelta / 2) * (1 + buffer);
+      const westLng = region.longitude - (region.longitudeDelta / 2) * (1 + buffer);
 
       // Query spots within the visible region with clip count
       const { data } = await supabase
@@ -105,15 +133,30 @@ export default function MapScreen({ navigation }: any) {
 
       console.log(`Loaded ${data?.length || 0} spots in region`);
       setSpots(data || []);
+      lastLoadedRegionRef.current = region;
     } catch (error) {
       console.error('Error loading spots:', error);
     }
-  }
+  }, []);
 
-  function onRegionChangeComplete(region: Region) {
+  const onRegionChangeComplete = useCallback((region: Region) => {
+    // Clear existing debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    
+    // Update map region immediately for UI responsiveness
     setMapRegion(region);
     checkZoomLevel(region);
-  }
+    
+    // Debounce the spot loading (only load after user stops moving for 500ms)
+    debounceTimerRef.current = setTimeout(() => {
+      const isMultiCityLevel = region.latitudeDelta < 0.5 && region.longitudeDelta < 0.5;
+      if (isMultiCityLevel) {
+        loadSpotsInRegion(region);
+      }
+    }, 500); // 500ms debounce delay - longer to prevent frequent updates
+  }, [loadSpotsInRegion]);
 
   function onLongPress(e: MapPressEvent) {
     const c = e.nativeEvent.coordinate;
@@ -188,21 +231,44 @@ export default function MapScreen({ navigation }: any) {
     }
   }
 
-  function getSpotImageUrl(spot: any) {
-    if (!spot.photo_path) {
-      console.log('No photo_path for spot:', spot.id);
-      return null;
-    }
-    const url = supabase.storage.from('spots-photos').getPublicUrl(spot.photo_path).data.publicUrl;
-    console.log('Spot image URL:', url, 'for path:', spot.photo_path);
-    return url;
-  }
-
-  function getMarkerColor(spot: any) {
+  // Memoize marker color calculation
+  const getMarkerColor = useCallback((spot: any) => {
     // Check if spot has clips - red if has clips, green if no clips
     const hasClips = spot.clips && spot.clips.length > 0 && spot.clips[0].count > 0;
     return hasClips ? '#FF0000' : '#00FF00'; // Red if has clips, green if no clips
-  }
+  }, []);
+  
+  // Memoize spot image URLs to prevent recalculation on every render
+  const getSpotImageUrl = useCallback((spot: any) => {
+    if (!spot.photo_path) {
+      return null;
+    }
+    return supabase.storage.from('spots-photos').getPublicUrl(spot.photo_path).data.publicUrl;
+  }, []);
+
+  // Memoize the rendered markers to prevent recreating them on every render
+  const renderedMarkers = useMemo(() => {
+    if (!shouldLoadSpots) return null;
+    
+    return spots.map((s) => (
+      <Marker 
+        key={s.id} 
+        coordinate={{ latitude: s.lat, longitude: s.lng }}
+        pinColor={getMarkerColor(s)}
+        tracksViewChanges={false}
+      >
+        <Callout onPress={() => navigation.navigate('Spot', { spot: s })}>
+          <View style={styles.callout}>
+            {s.photo_path && (
+              <Image source={{ uri: getSpotImageUrl(s) }} style={styles.calloutImage} />
+            )}
+            <Text style={styles.calloutTitle}>{s.title || 'Spot'}</Text>
+            <Text style={styles.calloutSubtitle}>Tap to claim territory!</Text>
+          </View>
+        </Callout>
+      </Marker>
+    ));
+  }, [spots, shouldLoadSpots, getMarkerColor, getSpotImageUrl, navigation]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -214,29 +280,27 @@ export default function MapScreen({ navigation }: any) {
         showsUserLocation={true}
         showsMyLocationButton={false}
       >
-        {shouldLoadSpots && spots.map((s) => (
-          <Marker 
-            key={s.id} 
-            coordinate={{ latitude: s.lat, longitude: s.lng }}
-            pinColor={getMarkerColor(s)}
-          >
-            <Callout onPress={() => navigation.navigate('Spot', { spot: s })}>
-              <View style={styles.callout}>
-                {s.photo_path && (
-                  <Image source={{ uri: getSpotImageUrl(s) }} style={styles.calloutImage} />
-                )}
-                <Text style={styles.calloutTitle}>{s.title || 'Spot'}</Text>
-                <Text style={styles.calloutSubtitle}>Tap to claim territory!</Text>
-              </View>
-            </Callout>
-          </Marker>
-        ))}
+        {renderedMarkers}
       </MapView>
       
       {/* Zoom level indicator */}
       {!shouldLoadSpots && (
         <View style={styles.zoomIndicator}>
           <Text style={styles.zoomText}>🔍 Zoom in to see spots</Text>
+        </View>
+      )}
+
+      {/* Map Legend */}
+      {shouldLoadSpots && (
+        <View style={styles.mapLegend}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendCircle, { backgroundColor: '#00FF00' }]} />
+            <Text style={styles.legendText}>Unowned Spot</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendCircle, { backgroundColor: '#FF0000' }]} />
+            <Text style={styles.legendText}>Owned Spot</Text>
+          </View>
         </View>
       )}
       <Modal visible={modalVisible} animationType="slide" onRequestClose={() => setModalVisible(false)}>
@@ -379,6 +443,38 @@ const styles = StyleSheet.create({
     color: colors.mapText, 
     fontSize: 16, 
     fontWeight: 'bold' 
+  },
+  mapLegend: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4
+  },
+  legendCircle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)'
+  },
+  legendText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600'
   }
 });
 

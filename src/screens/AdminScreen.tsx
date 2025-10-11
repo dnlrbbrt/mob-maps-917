@@ -12,6 +12,7 @@ type FlaggedContent = {
   flag_count: number;
   created_at: string;
   content_data: any;
+  reasons?: { reason: string; count: number }[];
 };
 
 export default function AdminScreen({ navigation }: any) {
@@ -55,7 +56,38 @@ export default function AdminScreen({ navigation }: any) {
       setLoading(true);
       const { data, error } = await supabase.rpc('get_flagged_content');
       if (error) throw error;
-      setFlaggedContent(data || []);
+      
+      // Fetch reasons for each flagged content
+      if (data && data.length > 0) {
+        const contentWithReasons = await Promise.all(
+          data.map(async (item: FlaggedContent) => {
+            // Get all flags for this content and group by reason
+            const { data: flags } = await supabase
+              .from('flags')
+              .select('reason')
+              .eq('content_type', item.content_type)
+              .eq('content_id', item.content_id);
+            
+            // Count occurrences of each reason
+            const reasonCounts: { [key: string]: number } = {};
+            flags?.forEach(flag => {
+              reasonCounts[flag.reason] = (reasonCounts[flag.reason] || 0) + 1;
+            });
+            
+            // Convert to array format
+            const reasons = Object.entries(reasonCounts).map(([reason, count]) => ({
+              reason,
+              count
+            }));
+            
+            return { ...item, reasons };
+          })
+        );
+        
+        setFlaggedContent(contentWithReasons);
+      } else {
+        setFlaggedContent(data || []);
+      }
     } catch (error) {
       console.error('Error loading flagged content:', error);
       Alert.alert('Error', 'Failed to load flagged content');
@@ -96,6 +128,18 @@ export default function AdminScreen({ navigation }: any) {
       console.error('Moderation error:', error);
       Alert.alert('Error', 'Failed to moderate content: ' + error.message);
     }
+  }
+
+  function formatReason(reason: string): string {
+    // Format the reason string to be more readable
+    const reasonMap: { [key: string]: string } = {
+      'inappropriate': 'Inappropriate Content',
+      'offensive': 'Offensive',
+      'spam': 'Spam',
+      'not_a_spot': 'Not a Real Spot',
+      'poor_quality': 'Poor Quality'
+    };
+    return reasonMap[reason] || reason.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 
   function getContentPreview(item: FlaggedContent) {
@@ -176,6 +220,23 @@ export default function AdminScreen({ navigation }: any) {
                 <Text style={styles.contentType}>{item.content_type.toUpperCase()}</Text>
               </View>
 
+              {/* Display report reasons */}
+              {item.reasons && item.reasons.length > 0 && (
+                <View style={styles.reasonsContainer}>
+                  <Text style={styles.reasonsTitle}>Reported for:</Text>
+                  {item.reasons.map((reasonItem, index) => (
+                    <View key={index} style={styles.reasonItem}>
+                      <Text style={styles.reasonText}>
+                        • {formatReason(reasonItem.reason)}
+                      </Text>
+                      {reasonItem.count > 1 && (
+                        <Text style={styles.reasonCount}>({reasonItem.count})</Text>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
+
               {getContentPreview(item)}
 
               <View style={styles.actionButtons}>
@@ -248,6 +309,34 @@ const styles = StyleSheet.create({
   },
   flagCount: { fontSize: 16, fontWeight: 'bold', color: colors.error },
   contentType: { fontSize: 12, color: colors.textSecondary, fontWeight: 'bold' },
+  
+  reasonsContainer: {
+    backgroundColor: 'rgba(255, 100, 100, 0.1)',
+    padding: 12,
+    borderRadius: 6,
+    marginBottom: 12
+  },
+  reasonsTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 6
+  },
+  reasonItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4
+  },
+  reasonText: {
+    fontSize: 14,
+    color: colors.text,
+    marginRight: 8
+  },
+  reasonCount: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic'
+  },
   
   contentPreview: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   thumbnail: { width: 60, height: 60, borderRadius: 8, marginRight: 12 },

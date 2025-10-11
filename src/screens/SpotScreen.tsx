@@ -30,9 +30,13 @@ export default function SpotScreen({ route, navigation }: any) {
   const [spotPhotos, setSpotPhotos] = useState<{ photo_path: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Video playback state
   const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+  
+  // Photo fullscreen state
+  const [fullscreenPhotoUrl, setFullscreenPhotoUrl] = useState<string | null>(null);
 
   // Surveillance state
   const [trickName, setTrickName] = useState('');
@@ -43,7 +47,15 @@ export default function SpotScreen({ route, navigation }: any) {
     loadClips();
     loadSurveillance();
     loadSpotPhotos();
+    loadCurrentUser();
   }, []);
+
+  async function loadCurrentUser() {
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData?.user) {
+      setCurrentUserId(userData.user.id);
+    }
+  }
 
   async function onRefresh() {
     setRefreshing(true);
@@ -64,15 +76,21 @@ export default function SpotScreen({ route, navigation }: any) {
     const { data } = await supabase
       .from('clips')
       .select(`
-        *,
+        id,
+        user_id,
+        storage_path,
+        thumb_path,
+        vote_count,
+        created_at,
         profiles:user_id (
           username,
           display_name
         )
       `)
       .eq('spot_id', spot.id)
-      .order('vote_count', { ascending: false });
-    setClips(data || []);
+      .order('vote_count', { ascending: false })
+      .limit(20);
+    setClips((data as any) || []);
   }
 
   async function loadSurveillance() {
@@ -272,6 +290,87 @@ export default function SpotScreen({ route, navigation }: any) {
     setPlayingClipId(null);
   }
 
+  async function deleteClip(clipId: string, storagePath: string, thumbPath?: string) {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData?.user) throw new Error('Not authenticated');
+
+      // Find the clip to verify ownership
+      const clip = clips.find(c => c.id === clipId);
+      if (!clip) throw new Error('Clip not found');
+      
+      if (clip.user_id !== userData.user.id) {
+        Alert.alert('Permission Denied', 'You can only delete your own clips.');
+        return;
+      }
+
+      Alert.alert(
+        'Delete Clip',
+        'Are you sure you want to delete this clip? This action cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                setLoading(true);
+
+                // Delete from database first
+                const { error: dbError } = await supabase
+                  .from('clips')
+                  .delete()
+                  .eq('id', clipId);
+
+                if (dbError) throw dbError;
+
+                // Delete video from storage
+                if (storagePath) {
+                  const { error: videoError } = await supabase.storage
+                    .from('clips')
+                    .remove([storagePath]);
+                  
+                  if (videoError) {
+                    console.error('Error deleting video from storage:', videoError);
+                  }
+                }
+
+                // Delete thumbnail from storage
+                if (thumbPath) {
+                  const { error: thumbError } = await supabase.storage
+                    .from('clips')
+                    .remove([thumbPath]);
+                  
+                  if (thumbError) {
+                    console.error('Error deleting thumbnail from storage:', thumbError);
+                  }
+                }
+
+                // Update UI
+                setClips(prev => prev.filter(c => c.id !== clipId));
+                
+                // Close video if it's the one being deleted
+                if (playingClipId === clipId) {
+                  setPlayingClipId(null);
+                }
+
+                Alert.alert('Success', 'Clip deleted successfully');
+              } catch (e: any) {
+                console.error('Delete clip error:', e);
+                Alert.alert('Delete Failed', e.message || 'Failed to delete clip');
+              } finally {
+                setLoading(false);
+              }
+            }
+          }
+        ]
+      );
+    } catch (e: any) {
+      console.error('deleteClip error:', e);
+      Alert.alert('Error', e.message);
+    }
+  }
+
   async function flagContent(clipId: string, reason: string = 'inappropriate') {
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -417,6 +516,19 @@ export default function SpotScreen({ route, navigation }: any) {
     return supabase.storage.from('spots-photos').getPublicUrl(photoPath).data.publicUrl;
   }
 
+  function handlePhotoPress(index: number) {
+    if (spotPhotos[index]) {
+      const photoUrl = getSpotImageUrl(spotPhotos[index].photo_path);
+      if (photoUrl) {
+        setFullscreenPhotoUrl(photoUrl);
+      }
+    }
+  }
+
+  function closeFullscreenPhoto() {
+    setFullscreenPhotoUrl(null);
+  }
+
   // Show all clips with rankings
   const rankedClips = clips;
 
@@ -451,6 +563,7 @@ export default function SpotScreen({ route, navigation }: any) {
           <PhotoGallery 
             photos={spotPhotos}
             getImageUrl={getSpotImageUrl}
+            onPhotoPress={handlePhotoPress}
           />
           <TouchableOpacity style={styles.spotFlagButton} onPress={() => {
             Alert.alert(
@@ -464,7 +577,7 @@ export default function SpotScreen({ route, navigation }: any) {
               ]
             );
           }}>
-            <Text style={styles.spotFlagText}>🚩</Text>
+            <Text style={styles.spotFlagText}>⋮</Text>
           </TouchableOpacity>
         </View>
 
@@ -482,6 +595,7 @@ export default function SpotScreen({ route, navigation }: any) {
                     <Image
                       source={{ uri: `${supabase.storage.from('clips').getPublicUrl(clip.thumb_path).data.publicUrl}` }}
                       style={styles.thumbnail}
+                      fadeDuration={200}
                     />
                   )}
                   <View style={styles.playOverlay}>
@@ -497,20 +611,29 @@ export default function SpotScreen({ route, navigation }: any) {
                     <TouchableOpacity style={styles.voteButton} onPress={() => vote(clip.id)}>
                       <Text style={styles.voteText}>Vote</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.flagButton} onPress={() => {
-                      Alert.alert(
-                        'Report Clip',
-                        'Why are you reporting this clip?',
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Inappropriate Content', onPress: () => flagContent(clip.id, 'inappropriate') },
-                          { text: 'Offensive', onPress: () => flagContent(clip.id, 'offensive') },
-                          { text: 'Spam', onPress: () => flagContent(clip.id, 'spam') }
-                        ]
-                      );
-                    }}>
-                      <Text style={styles.flagText}>🚩</Text>
-                    </TouchableOpacity>
+                    {currentUserId === clip.user_id ? (
+                      <TouchableOpacity 
+                        style={styles.deleteButton} 
+                        onPress={() => deleteClip(clip.id, clip.storage_path, clip.thumb_path)}
+                      >
+                        <Text style={styles.deleteText}>🗑️</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.flagButton} onPress={() => {
+                        Alert.alert(
+                          'Report Clip',
+                          'Why are you reporting this clip?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Inappropriate Content', onPress: () => flagContent(clip.id, 'inappropriate') },
+                            { text: 'Offensive', onPress: () => flagContent(clip.id, 'offensive') },
+                            { text: 'Spam', onPress: () => flagContent(clip.id, 'spam') }
+                          ]
+                        );
+                      }}>
+                        <Text style={styles.flagText}>⋮</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               </View>
@@ -576,7 +699,7 @@ export default function SpotScreen({ route, navigation }: any) {
                     );
                   }}
                 >
-                  <Text style={styles.surveillanceFlagText}>🚩</Text>
+                  <Text style={styles.surveillanceFlagText}>⋮</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -630,17 +753,63 @@ export default function SpotScreen({ route, navigation }: any) {
                     >
                       <Text style={styles.fullscreenVoteText}>Vote</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.fullscreenFlagButton}
-                      onPress={() => playingClipId && flagContent(playingClipId)}
-                    >
-                      <Text style={styles.fullscreenFlagText}>🚩 Report</Text>
-                    </TouchableOpacity>
+                    {playingClipId && currentUserId === clips.find(c => c.id === playingClipId)?.user_id ? (
+                      <TouchableOpacity
+                        style={styles.fullscreenDeleteButton}
+                        onPress={() => {
+                          const clip = clips.find(c => c.id === playingClipId);
+                          if (clip) {
+                            deleteClip(clip.id, clip.storage_path, clip.thumb_path);
+                          }
+                        }}
+                      >
+                        <Text style={styles.fullscreenDeleteText}>🗑️ Delete</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.fullscreenFlagButton}
+                        onPress={() => playingClipId && flagContent(playingClipId)}
+                      >
+                        <Text style={styles.fullscreenFlagText}>⋮</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </>
               )}
             </View>
           )}
+        </View>
+      </Modal>
+
+      {/* Fullscreen Photo Modal */}
+      <Modal
+        visible={fullscreenPhotoUrl !== null}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={closeFullscreenPhoto}
+      >
+        <View style={styles.photoModalContainer}>
+          <TouchableOpacity 
+            style={styles.photoModalOverlay} 
+            activeOpacity={1}
+            onPress={closeFullscreenPhoto}
+          >
+            <View style={styles.photoModalContent}>
+              <TouchableOpacity 
+                style={styles.photoCloseButton} 
+                onPress={closeFullscreenPhoto}
+              >
+                <Text style={styles.photoCloseButtonText}>✕ Close</Text>
+              </TouchableOpacity>
+              {fullscreenPhotoUrl && (
+                <Image
+                  source={{ uri: fullscreenPhotoUrl }}
+                  style={styles.fullscreenPhoto}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          </TouchableOpacity>
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -661,10 +830,10 @@ const styles = StyleSheet.create({
     position: 'absolute', 
     top: 24, 
     right: 24, 
-    backgroundColor: colors.error, 
-    paddingHorizontal: 8, 
-    paddingVertical: 6, 
-    borderRadius: 4,
+    backgroundColor: colors.primary, 
+    paddingHorizontal: 10, 
+    paddingVertical: 8, 
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -673,9 +842,10 @@ const styles = StyleSheet.create({
     zIndex: 10
   },
   spotFlagText: { 
-    fontSize: 12, 
-    color: 'white',
-    fontWeight: 'bold'
+    fontSize: 20, 
+    color: colors.text,
+    fontWeight: 'bold',
+    letterSpacing: 1
   },
   noPhotoPlaceholder: { width: '100%', height: 200, backgroundColor: colors.surface, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   noPhotoText: { color: colors.textSecondary, fontSize: 16 },
@@ -700,8 +870,10 @@ const styles = StyleSheet.create({
   clipActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   voteButton: { backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
   voteText: { color: colors.text, fontWeight: 'bold', fontSize: 12 },
-  flagButton: { backgroundColor: colors.error, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 },
-  flagText: { fontSize: 12, color: 'white', fontWeight: 'bold' },
+  deleteButton: { backgroundColor: colors.primary, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 4 },
+  deleteText: { fontSize: 12, color: colors.text, fontWeight: 'bold' },
+  flagButton: { backgroundColor: colors.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  flagText: { fontSize: 18, color: colors.text, fontWeight: 'bold', letterSpacing: 1 },
   
   // Upload section
   uploadButton: { backgroundColor: colors.error, padding: 16, borderRadius: 8, alignItems: 'center' },
@@ -726,8 +898,8 @@ const styles = StyleSheet.create({
   surveillanceInfo: { flex: 1 },
   trickText: { fontSize: 16, fontWeight: 'bold', marginBottom: 4, color: colors.text },
   videoPartText: { fontSize: 14, color: colors.textSecondary },
-  surveillanceFlagButton: { backgroundColor: colors.error, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 4 },
-  surveillanceFlagText: { fontSize: 10, color: 'white', fontWeight: 'bold' },
+  surveillanceFlagButton: { backgroundColor: colors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  surveillanceFlagText: { fontSize: 16, color: colors.text, fontWeight: 'bold', letterSpacing: 1 },
   
   // Fullscreen video modal
   videoModalContainer: { 
@@ -785,27 +957,77 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary, 
     paddingHorizontal: 16, 
     paddingVertical: 8, 
-    borderRadius: 6 
+    borderRadius: 20 
   },
   fullscreenVoteText: { 
-    color: 'white', 
+    color: colors.text, 
     fontWeight: 'bold', 
     fontSize: 14 
   },
-  fullscreenFlagButton: { 
-    backgroundColor: colors.error, 
+  fullscreenDeleteButton: { 
+    backgroundColor: colors.primary, 
     paddingHorizontal: 16, 
     paddingVertical: 8, 
-    borderRadius: 6 
+    borderRadius: 20 
   },
-  fullscreenFlagText: {
-    color: 'white',
+  fullscreenDeleteText: {
+    color: colors.text,
     fontWeight: 'bold',
     fontSize: 14
+  },
+  fullscreenFlagButton: { 
+    backgroundColor: colors.primary, 
+    paddingHorizontal: 16, 
+    paddingVertical: 8, 
+    borderRadius: 20 
+  },
+  fullscreenFlagText: {
+    color: colors.text,
+    fontWeight: 'bold',
+    fontSize: 20,
+    letterSpacing: 2
   },
 
   bottomPadding: {
     height: 120, // Extra padding so users can scroll down and see all surveillance entries
+  },
+
+  // Fullscreen photo modal
+  photoModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  photoModalOverlay: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  photoModalContent: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  photoCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1000,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    padding: 12,
+    borderRadius: 8
+  },
+  photoCloseButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  fullscreenPhoto: {
+    width: width,
+    height: '100%'
   },
 
   // Camera functionality removed
